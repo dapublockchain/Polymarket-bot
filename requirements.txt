@@ -1,0 +1,19 @@
+# PolyArb-X Python Dependencies
+# Install with: python3 -m pip install --user -r requirements.txt
+
+# Core Web3 dependencies
+web3==6.11.3
+eth-account==0.10.0
+
+# Data validation
+pydantic>=2.5.3
+
+# Networking
+websockets==12.0
+aiohttp==3.9.1
+
+# Configuration
+python-dotenv==1.0.0
+
+# Logging
+loguru==0.7.3
