@@ -15,6 +15,8 @@ venv/
 # Logs
 *.log
 data/*.log
+data/events/
+logs/
 
 # Coverage
 htmlcov/
