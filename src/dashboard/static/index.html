@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PolyArb-X 监控面板</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Ionicons for icons -->
+    <script
+      type="module"
+      src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"
+    ></script>
+    <script
+      nomodule
+      src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"
+    ></script>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Header -->
+      <header>
+        <div class="logo">
+          <ion-icon name="analytics-outline"></ion-icon>
+          <h1>PolyArb-X</h1>
+        </div>
+        <div class="status-badge" id="system-status">
+          <span class="dot"></span>
+          <span class="text">连接中...</span>
+        </div>
+      </header>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="card stat-card">
+          <div class="icon-box"><ion-icon name="time-outline"></ion-icon></div>
+          <div class="stat-info">
+            <h3>运行时间</h3>
+            <p id="uptime">--</p>
+          </div>
+        </div>
+        <div class="card stat-card">
+          <div class="icon-box">
+            <ion-icon name="layers-outline"></ion-icon>
+          </div>
+          <div class="stat-info">
+            <h3>策略</h3>
+            <p id="strategy-name">--</p>
+          </div>
+        </div>
+        <div class="card stat-card">
+          <div class="icon-box">
+            <ion-icon name="git-network-outline"></ion-icon>
+          </div>
+          <div class="stat-info">
+            <h3>活跃交易对</h3>
+            <p id="active-pairs">--</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="main-grid">
+        <!-- Left: Logs -->
+        <div class="card logs-panel">
+          <div class="card-header">
+            <h2><ion-icon name="terminal-outline"></ion-icon> 实时日志</h2>
+            <div class="actions">
+              <button class="btn-sm" id="clear-logs">清空</button>
+            </div>
+          </div>
+          <div class="log-viewer" id="log-viewer">
+            <!-- Logs will be injected here -->
+            <div class="log-line info">等待日志...</div>
+          </div>
+        </div>
+
+        <!-- Right: Opportunities -->
+        <div class="card opps-panel">
+          <div class="card-header">
+            <h2>
+              <ion-icon name="flash-outline"></ion-icon> 检测到的机会
+            </h2>
+          </div>
+          <div class="opps-list" id="opps-list">
+            <!-- Opportunities will be injected here -->
+            <div class="empty-state">尚未检测到套利机会。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -17,9 +17,9 @@ async def get_status(request):
     """
     return web.json_response(
         {
-            "status": "online",
+            "status": "在线",
             "uptime": "0h 12m 30s",  # Mocked for now
-            "strategy": "Atomic Arbitrage",
+            "strategy": "原子套利",
             "active_pairs": 2,
             "last_update": datetime.now().isoformat(),
         }
@@ -63,7 +63,7 @@ async def get_opportunities(request):
             "yes_price": 0.45,
             "no_price": 0.52,
             "profit": 0.03,
-            "status": "Executed",
+            "status": "已执行",
         },
         {
             "id": 2,
@@ -72,7 +72,7 @@ async def get_opportunities(request):
             "yes_price": 0.12,
             "no_price": 0.89,
             "profit": -0.01,
-            "status": "Ignored (Low Profit)",
+            "status": "已忽略 (利润过低)",
         },
     ]
     return web.json_response({"opportunities": opportunities})

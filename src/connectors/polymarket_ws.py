@@ -8,6 +8,7 @@ import json
 import logging
 from decimal import Decimal
 from typing import Optional, Dict
+from json import JSONDecodeError
 
 import websockets
 
@@ -62,10 +63,10 @@ class PolymarketWSClient:
 
         while attempt < self.max_reconnect_attempts:
             try:
-                logger.info(f"Connecting to {self.url} (attempt {attempt + 1})")
+                logger.info(f"正在连接到 {self.url} (尝试 {attempt + 1}/{self.max_reconnect_attempts})")
                 self._ws = await websockets.connect(self.url)
                 self.connected = True
-                logger.info("Connected successfully")
+                logger.info("连接成功")
 
                 # Resubscribe to previous subscriptions
                 for token_id in self._subscriptions:
@@ -74,10 +75,10 @@ class PolymarketWSClient:
                 return
             except Exception as e:
                 attempt += 1
-                logger.warning(f"Connection failed: {e}")
+                logger.warning(f"连接失败: {e}")
 
                 if attempt >= self.max_reconnect_attempts:
-                    raise Exception(f"Failed to connect after {self.max_reconnect_attempts} attempts")
+                    raise Exception(f"连接失败，已尝试 {self.max_reconnect_attempts} 次")
 
                 # Wait before retrying
                 await asyncio.sleep(delay)
@@ -102,7 +103,7 @@ class PolymarketWSClient:
             await self._ws.close()
             self._ws = None
 
-        logger.info("Disconnected")
+        logger.info("已断开连接")
 
     async def subscribe(self, token_id: str) -> None:
         """
@@ -115,11 +116,11 @@ class PolymarketWSClient:
             Exception: If not connected
         """
         if not self.connected:
-            raise Exception("Not connected")
+            raise Exception("未连接")
 
         await self._send_subscription(token_id)
         self._subscriptions.add(token_id)
-        logger.info(f"Subscribed to {token_id}")
+        logger.info(f"已订阅 {token_id}")
 
     async def _send_subscription(self, token_id: str) -> None:
         """Send subscription message to the server."""
@@ -143,17 +144,27 @@ class PolymarketWSClient:
                     continue
 
                 message_raw = await self._ws.recv()
-                message = json.loads(message_raw)
+
+                # Skip empty messages (heartbeat/ping)
+                if not message_raw or not message_raw.strip():
+                    continue
+
+                try:
+                    message = json.loads(message_raw)
+                except JSONDecodeError:
+                    # Skip non-JSON messages (heartbeat/control frames)
+                    logger.debug(f"跳过非 JSON 消息: {message_raw[:50]}")
+                    continue
 
                 await self._handle_message(message)
 
             except websockets.exceptions.ConnectionClosed:
-                logger.warning("Connection closed, attempting to reconnect...")
+                logger.warning("连接已关闭，尝试重新连接...")
                 self.connected = False
                 await self.connect()
 
             except Exception as e:
-                logger.error(f"Error in listen loop: {e}")
+                logger.error(f"监听循环错误: {e}")
                 await asyncio.sleep(0.1)
 
     async def _handle_message(self, message: dict) -> None:
@@ -217,7 +228,7 @@ class PolymarketWSClient:
             last_update=int(asyncio.get_event_loop().time() * 1000),
         )
 
-        logger.debug(f"Updated order book for {token_id}")
+        logger.info(f"已更新订单本: {token_id} (快照 - {len(bids)} 买单, {len(asks)} 卖单)")
 
     async def _handle_update(self, message: dict) -> None:
         """
@@ -268,7 +279,7 @@ class PolymarketWSClient:
 
         orderbook.last_update = int(asyncio.get_event_loop().time() * 1000)
 
-        logger.debug(f"Updated order book for {token_id}")
+        logger.info(f"已更新订单本: {token_id} (更新 - {len(bids_raw)} 买单变动, {len(asks_raw)} 卖单变动)")
 
     def get_order_book(self, token_id: str) -> Optional[OrderBook]:
         """
