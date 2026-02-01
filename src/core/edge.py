@@ -24,7 +24,7 @@ Example:
 from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class Decision(str, Enum):
@@ -48,6 +48,7 @@ class EdgeBreakdown:
         net_edge: Net profit after costs (calculated)
         decision: Trading decision (ACCEPT/REJECT)
         reason: Explanation for the decision
+        risk_tags: List of risk tags for risk tracking
     """
     gross_edge: Decimal
     fees_est: Decimal
@@ -58,6 +59,7 @@ class EdgeBreakdown:
     net_edge: Decimal = None
     decision: Decision = None
     reason: str = None
+    risk_tags: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         """Calculate net edge after initialization"""

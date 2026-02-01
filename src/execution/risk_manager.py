@@ -31,6 +31,13 @@ class RejectCode(str, Enum):
     PROFIT_BELOW_GAS = "profit_below_gas"
     SLIPPAGE_EXCEEDED = "slippage_exceeded"
 
+    # New strategy reject codes
+    RESOLUTION_UNCERTAIN = "resolution_uncertain"
+    DISPUTE_RISK_HIGH = "dispute_risk_high"
+    CARRY_COST_TOO_HIGH = "carry_cost_too_high"
+    MANIPULATION_RISK = "manipulation_risk"
+    ABNORMAL_VOLATILITY = "abnormal_volatility"
+
 
 class RiskManager:
     """

@@ -5,8 +5,20 @@ All models use Pydantic for validation and serialization.
 """
 from typing import Optional, List
 from datetime import datetime
+from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 from decimal import Decimal
+
+
+class RiskTag(str, Enum):
+    """Risk tags for identifying signal risk types."""
+    TAIL_RISK = "tail_risk"
+    SETTLEMENT_RISK = "settlement_risk"
+    MANIPULATION_RISK = "manipulation_risk"
+    DISPUTE_RISK = "dispute_risk"
+    LOW_LIQUIDITY = "low_liquidity"
+    CARRY_COST_RISK = "carry_cost_risk"
+    CORRELATION_CLUSTER_RISK = "correlation_cluster_risk"
 
 
 class Bid(BaseModel):
@@ -246,5 +258,142 @@ class NegRiskSignal(BaseModel):
     @classmethod
     def validate_profit_can_be_negative(cls, v: Decimal) -> Decimal:
         """Profit can be negative (no opportunity), but we typically filter these."""
+        return v
+
+
+class SettlementLagSignal(Signal):
+    """Signal for settlement lag window strategy.
+
+    This strategy trades during the resolution window when market inefficiencies
+    may occur due to uncertainty about the outcome.
+    """
+
+    market_id: str = Field(..., description="Market identifier")
+    resolution_window_hours: float = Field(
+        ...,
+        ge=0,
+        description="Hours until market resolution",
+    )
+    dispute_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Dispute risk score (0=none, 1=certain dispute)",
+    )
+    carry_cost: Decimal = Field(
+        ...,
+        ge=0,
+        description="Capital carry cost in USDC",
+    )
+    resolution_uncertainty: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Resolution uncertainty score",
+    )
+    end_date: Optional[datetime] = Field(None, description="Market end date")
+
+    @field_validator("carry_cost")
+    @classmethod
+    def validate_carry_cost(cls, v: Decimal) -> Decimal:
+        """Ensure carry cost is non-negative."""
+        if v < 0:
+            raise ValueError("Carry cost must be non-negative")
+        return v
+
+
+class MarketMakingSignal(Signal):
+    """Signal for market making strategy.
+
+    This strategy provides bid-ask spreads to earn the spread.
+    IMPORTANT: Must use post-only orders to avoid taking liquidity.
+    """
+
+    bid_price: Decimal = Field(..., description="Bid price to post")
+    ask_price: Decimal = Field(..., description="Ask price to post")
+    spread_bps: int = Field(..., ge=0, description="Spread in basis points")
+    inventory_skew: Decimal = Field(
+        ...,
+        description="Inventory skew (positive=long biased, negative=short biased)",
+    )
+    quote_age_seconds: float = Field(
+        ...,
+        ge=0,
+        description="How long this quote has been active",
+    )
+    max_position_size: Decimal = Field(
+        ...,
+        gt=0,
+        description="Maximum position size for this quote",
+    )
+    post_only: bool = Field(
+        default=True,
+        description="Force post-only (never take liquidity)",
+    )
+
+    @field_validator("bid_price", "ask_price")
+    @classmethod
+    def validate_prices(cls, v: Decimal) -> Decimal:
+        """Ensure prices are valid."""
+        if v < 0 or v > 1:
+            raise ValueError("Prices must be between 0 and 1")
+        return v
+
+    @field_validator("spread_bps")
+    @classmethod
+    def validate_spread(cls, v: int, info) -> int:
+        """Ensure spread is reasonable."""
+        if v > 1000:  # More than 10% spread is suspicious
+            raise ValueError("Spread too large")
+        return v
+
+
+class TailRiskSignal(Signal):
+    """Signal for tail risk underwriting strategy.
+
+    This strategy insures against extreme events.
+    WARNING: This is NOT risk-free. Explicit worst-case loss cap required.
+    """
+
+    worst_case_loss: Decimal = Field(
+        ...,
+        description="Maximum possible loss if tail event occurs",
+    )
+    correlation_cluster: str = Field(
+        ...,
+        description="Cluster ID for correlated positions",
+    )
+    hedge_ratio: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="Hedge ratio (0=no hedge, 1=fully hedged)",
+    )
+    tail_probability: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Estimated probability of tail event",
+    )
+    max_exposure: Decimal = Field(
+        ...,
+        gt=0,
+        description="Maximum exposure in USDC",
+    )
+
+    @field_validator("worst_case_loss")
+    @classmethod
+    def validate_worst_case_loss(cls, v: Decimal) -> Decimal:
+        """Ensure worst case loss is explicitly set (cannot be zero)."""
+        if v <= 0:
+            raise ValueError("Worst case loss must be positive (risk underwriting)")
+        return v
+
+    @field_validator("hedge_ratio")
+    @classmethod
+    def validate_hedge_ratio(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        """Ensure hedge ratio is valid if set."""
+        if v is not None and (v < 0 or v > 1):
+            raise ValueError("Hedge ratio must be between 0 and 1")
         return v
 
