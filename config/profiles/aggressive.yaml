@@ -1,0 +1,42 @@
+name: "Aggressive"
+description: "激进型配置 - 大仓位、低利润阈值、高交易频率"
+tags: ["high-risk", "large-position", "aggressive"]
+version: "1.0.0"
+updated_at: "2026-02-01T00:00:00Z"
+risk_warnings:
+  - "LARGE_POSITION_SIZE"
+  - "LOW_PROFIT_THRESHOLD"
+  - "HIGH_FREQUENCY"
+
+# 策略配置
+MIN_PROFIT_THRESHOLD: "0.005"  # 0.5% 最小利润阈值（更激进）
+TRADE_SIZE: "20"  # $20 USDC 每笔交易
+
+# 风险管理
+MAX_POSITION_SIZE: "2000"  # 最大仓位 $2000（翻倍）
+MAX_SLIPPAGE: "0.03"  # 最大滑点 3%（更宽松）
+
+# 新策略（启用部分）
+SETTLEMENT_LAG_ENABLED: true  # 启用结算滞后策略
+MARKET_MAKING_ENABLED: false
+TAIL_RISK_ENABLED: false
+PUBLIC_INFO_ENABLED: false
+
+# 结算滞后策略参数
+SETTLEMENT_LAG_MAX_DISPUTE_SCORE: "0.3"
+SETTLEMENT_LAG_MAX_CARRY_COST_PCT: "0.02"
+SETTLEMENT_LAG_MIN_WINDOW_HOURS: "1.0"
+
+# 执行配置
+MAX_RETRIES: 5  # 增加重试次数
+RETRY_DELAY: "0.5"  # 减少重试延迟
+
+# Gas 配置
+MAX_GAS_PRICE: "700000000000"  # 700 gwei（更高）
+MAX_GAS_COST: "1.5"  # 最大 Gas 成本 $1.5
+
+# 异常防御（开启但阈值更宽松）
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: "0.15"  # 15%（更宽松）
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: "0.6"
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: "0.6"

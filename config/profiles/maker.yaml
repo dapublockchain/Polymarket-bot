@@ -1,0 +1,40 @@
+name: "Maker"
+description: "做市商型配置 - Post-only 订单，赚取手续费优惠，提供流动性"
+tags: ["market-making", "post-only", "fee-advantage"]
+version: "1.0.0"
+updated_at: "2026-02-01T00:00:00Z"
+
+# 策略配置
+MIN_PROFIT_THRESHOLD: "0.008"  # 0.8% 最小利润阈值
+TRADE_SIZE: "15"  # $15 USDC 每笔交易
+
+# 风险管理
+MAX_POSITION_SIZE: "800"  # 最大仓位 $800
+MAX_SLIPPAGE: "0.01"  # 最大滑点 1%
+
+# 做市策略（启用）
+SETTLEMENT_LAG_ENABLED: false
+MARKET_MAKING_ENABLED: true  # 启用盘口做市
+TAIL_RISK_ENABLED: false
+PUBLIC_INFO_ENABLED: false
+
+# 做市策略参数
+MM_POST_ONLY: true  # 强制 post-only（永不主动成交）
+MM_MAX_SPREAD_BPS: 80  # 0.8% 最大价差（较窄）
+MM_QUOTE_AGE_LIMIT_SECONDS: "20.0"  # 20 秒报价有效期
+MM_MAX_POSITION_SIZE: "500"  # 最大做市仓位 $500
+MM_MAX_CANCEL_RATE_PER_MIN: 12  # 每分钟最多取消 12 次
+
+# 执行配置
+MAX_RETRIES: 3
+RETRY_DELAY: "1.0"
+
+# Gas 配置
+MAX_GAS_PRICE: "400000000000"  # 400 gwei（做市不需要太高）
+MAX_GAS_COST: "0.8"  # 最大 Gas 成本 $0.8
+
+# 异常防御
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: "0.10"
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: "0.5"
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: "0.5"

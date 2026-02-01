@@ -1,0 +1,33 @@
+name: "Balanced"
+description: "平衡型配置 - 推荐的默认设置，平衡收益与风险"
+tags: ["default", "balanced", "recommended"]
+version: "1.0.0"
+updated_at: "2026-02-01T00:00:00Z"
+
+# 策略配置（使用默认值）
+MIN_PROFIT_THRESHOLD: "0.01"  # 1% 最小利润阈值
+TRADE_SIZE: "10"  # $10 USDC 每笔交易
+
+# 风险管理
+MAX_POSITION_SIZE: "1000"  # 最大仓位 $1000
+MAX_SLIPPAGE: "0.02"  # 最大滑点 2%
+
+# 新策略（全部禁用，需显式启用）
+SETTLEMENT_LAG_ENABLED: false
+MARKET_MAKING_ENABLED: false
+TAIL_RISK_ENABLED: false
+PUBLIC_INFO_ENABLED: false
+
+# 执行配置
+MAX_RETRIES: 3
+RETRY_DELAY: "1.0"
+
+# Gas 配置
+MAX_GAS_PRICE: "500000000000"  # 500 gwei
+MAX_GAS_COST: "1.0"  # 最大 Gas 成本 $1
+
+# 异常防御（开启）
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: "0.10"  # 10%
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: "0.5"
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: "0.5"

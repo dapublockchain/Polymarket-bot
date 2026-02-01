@@ -1,0 +1,48 @@
+name: "Live Safe"
+description: "实盘安全配置 - 切换到实盘模式，多层安全检查，适合首次实盘"
+tags: ["live", "production", "safe-first"]
+version: "1.0.0"
+updated_at: "2026-02-01T00:00:00Z"
+risk_warnings:
+  - "SWITCH_TO_LIVE"
+  - "REAL_MONEY"
+  - "REQUIRES_PRIVATE_KEY"
+
+# ⚠️ 危险：切换到实盘模式
+DRY_RUN: false
+
+# 策略配置（保守）
+MIN_PROFIT_THRESHOLD: "0.02"  # 2% 最小利润阈值（实盘更保守）
+TRADE_SIZE: "5"  # $5 USDC 每笔交易（小仓位起步）
+
+# 风险管理
+MAX_POSITION_SIZE: "100"  # 最大仓位 $100（实盘严格限制）
+MAX_SLIPPAGE: "0.01"  # 最大滑点 1%（实盘严格限制）
+
+# 新策略（全部禁用，实盘暂不启用）
+SETTLEMENT_LAG_ENABLED: false
+MARKET_MAKING_ENABLED: false
+TAIL_RISK_ENABLED: false
+PUBLIC_INFO_ENABLED: false
+
+# 执行配置
+MAX_RETRIES: 2  # 实盘减少重试
+RETRY_DELAY: "2.0"  # 实盘增加重试延迟
+
+# Gas 配置
+MAX_GAS_PRICE: "300000000000"  # 300 gwei（实盘保守）
+MAX_GAS_COST: "0.5"  # 最大 Gas 成本 $0.5（实盘严格）
+
+# 异常防御（开启，最严格）
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: "0.05"  # 5%（实盘最严格）
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: "0.4"  # 0.4（实盘最严格）
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: "0.4"  # 40%（实盘最严格）
+
+# 实盘特殊检查
+# 要求：
+# 1. PRIVATE_KEY 必须配置
+# 2. WALLET_ADDRESS 必须配置
+# 3. 建议先在测试网运行
+# 4. 建议从小金额开始
+# 5. 确保网络稳定

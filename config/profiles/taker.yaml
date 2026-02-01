@@ -1,0 +1,33 @@
+name: "Taker"
+description: "接单型配置 - 快速成交，允许较高滑点，优先流动性"
+tags: ["taker", "fast-execution", "high-slippage"]
+version: "1.0.0"
+updated_at: "2026-02-01T00:00:00Z"
+
+# 策略配置
+MIN_PROFIT_THRESHOLD: "0.012"  # 1.2% 最小利润阈值
+TRADE_SIZE: "12"  # $12 USDC 每笔交易
+
+# 风险管理
+MAX_POSITION_SIZE: "600"  # 最大仓位 $600
+MAX_SLIPPAGE: "0.025"  # 最大滑点 2.5%（允许较高滑点以快速成交）
+
+# 新策略（全部禁用）
+SETTLEMENT_LAG_ENABLED: false
+MARKET_MAKING_ENABLED: false
+TAIL_RISK_ENABLED: false
+PUBLIC_INFO_ENABLED: false
+
+# 执行配置
+MAX_RETRIES: 4  # 增加重试次数以确保成交
+RETRY_DELAY: "0.5"  # 减少重试延迟以加快速度
+
+# Gas 配置
+MAX_GAS_PRICE: "600000000000"  # 600 gwei（提高以优先打包）
+MAX_GAS_COST: "1.2"  # 最大 Gas 成本 $1.2
+
+# 异常防御
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: "0.10"
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: "0.5"
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: "0.5"

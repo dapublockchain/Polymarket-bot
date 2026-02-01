@@ -17,6 +17,9 @@ import time
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import ProfileManager
+from src.api.profile_manager import ProfileManager
+
 # Strategy state management
 strategy_states = {
     'atomic': True,
@@ -29,6 +32,9 @@ strategy_states = {
 
 # Account balance (in dry-run mode, this is simulated)
 account_balance = 10000.00
+
+# Initialize ProfileManager
+profile_manager = ProfileManager()
 
 class PolyArbAPIHandler(SimpleHTTPRequestHandler):
     """Custom HTTP handler with API endpoints"""
@@ -52,6 +58,12 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
             self.send_json(self.get_strategies())
         elif self.path == '/api/balance':
             self.send_json(self.get_balance())
+        elif self.path == '/api/profiles':
+            self.send_json(self.get_profiles())
+        elif self.path.startswith('/api/profiles/'):
+            self.handle_profile_get()
+        elif self.path == '/api/audit/config_changes':
+            self.send_json(self.get_audit_history())
         elif self.path == '/':
             self.path = '/dashboard.html'
             super().do_GET()
@@ -62,6 +74,12 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
         """Handle POST requests"""
         if self.path == '/api/strategies':
             self.handle_strategies_post()
+        elif self.path.startswith('/api/profiles/'):
+            self.handle_profile_post()
+        elif self.path == '/api/profiles/save':
+            self.handle_save_profile()
+        elif self.path == '/api/profiles/rollback':
+            self.send_json(self.handle_rollback())
         else:
             self.send_response(404)
             self.end_headers()
@@ -229,6 +247,167 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
                 "success": False,
                 "error": str(e)
             })
+
+    # ========== Profile API Methods ==========
+
+    def get_profiles(self):
+        """Get all available profiles"""
+        try:
+            profiles = profile_manager.list_profiles()
+            return {
+                "profiles": profiles,
+                "count": len(profiles),
+                "status": "ok"
+            }
+        except Exception as e:
+            return {
+                "profiles": [],
+                "error": str(e),
+                "status": "error"
+            }
+
+    def handle_profile_get(self):
+        """Handle GET /api/profiles/{name}"""
+        try:
+            # Extract profile name from path
+            # Path format: /api/profiles/{name} or /api/profiles/{name}/apply
+            path_parts = self.path.strip('/').split('/')
+            if len(path_parts) >= 3:
+                profile_name = path_parts[2]
+
+                # Check if it's an apply request
+                if len(path_parts) >= 4 and path_parts[3] == 'apply':
+                    # Apply request should be POST, not GET
+                    self.send_json({"error": "Use POST to apply profile"}, status=405)
+                    return
+
+                # Get profile details
+                profile_data = profile_manager.get_profile(profile_name)
+                self.send_json({
+                    "profile": profile_data,
+                    "status": "ok"
+                })
+            else:
+                self.send_json({"error": "Invalid profile path"}, status=400)
+        except ValueError as e:
+            self.send_json({"error": str(e)}, status=404)
+        except Exception as e:
+            self.send_json({"error": str(e)}, status=500)
+
+    def handle_profile_post(self):
+        """Handle POST /api/profiles/{name}/apply"""
+        try:
+            # Extract profile name from path
+            path_parts = self.path.strip('/').split('/')
+            if len(path_parts) >= 3:
+                profile_name = path_parts[2]
+
+                # Apply profile
+                result = profile_manager.apply_profile(profile_name)
+
+                print(f"[Profile Applied] {profile_name} by user")
+                if result.get("risk_warnings"):
+                    print(f"[Risk Warnings] {', '.join(result['risk_warnings'])}")
+
+                self.send_json({
+                    "success": True,
+                    "result": result
+                })
+            else:
+                self.send_json({"error": "Invalid profile path"}, status=400)
+        except ValueError as e:
+            self.send_json({
+                "success": False,
+                "error": str(e)
+            }, status=400)
+        except Exception as e:
+            self.send_json({
+                "success": False,
+                "error": str(e)
+            }, status=500)
+
+    def handle_save_profile(self):
+        """Handle POST /api/profiles/save"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data)
+
+            name = data.get('name')
+            description = data.get('description', '')
+            tags = data.get('tags', [])
+            config_override = data.get('config_override')
+
+            if not name:
+                self.send_json({
+                    "success": False,
+                    "error": "Profile name is required"
+                }, status=400)
+                return
+
+            # Save custom profile
+            result = profile_manager.save_custom_profile(
+                name=name,
+                description=description,
+                tags=tags,
+                config_override=config_override
+            )
+
+            print(f"[Profile Saved] custom/{name}")
+
+            self.send_json({
+                "success": True,
+                "profile": result
+            })
+        except Exception as e:
+            self.send_json({
+                "success": False,
+                "error": str(e)
+            }, status=500)
+
+    def handle_rollback(self):
+        """Handle POST /api/profiles/rollback"""
+        try:
+            result = profile_manager.rollback()
+
+            print(f"[Profile Rollback] Rolled back from {result.get('rolled_back_from')}")
+
+            return {
+                "success": True,
+                "result": result
+            }
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_audit_history(self):
+        """Handle GET /api/audit/config_changes"""
+        try:
+            from urllib.parse import parse_qs
+            query = parse_qs(self.path.split('?')[1] if '?' in self.path else '')
+
+            limit = int(query.get('limit', [200])[0])
+
+            history = profile_manager.get_audit_history(limit=limit)
+
+            return {
+                "history": history,
+                "count": len(history),
+                "status": "ok"
+            }
+        except Exception as e:
+            return {
+                "history": [],
+                "error": str(e),
+                "status": "error"
+            }
 
     def log_message(self, format, *args):
         """Suppress default logging"""

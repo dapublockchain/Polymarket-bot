@@ -1,0 +1,196 @@
+# PolyArb-X Alerts Configuration
+# 告警规则配置文件
+
+# 全局配置
+evaluation_interval_seconds: 3  # 每 3 秒评估一次规则
+webhook_timeout_seconds: 5  # Webhook 超时时间
+webhook_max_retries: 3  # Webhook 失败重试次数
+
+# 通知渠道配置
+notification_channels:
+  ui:
+    enabled: true
+    display_toast: true  # 显示 Toast 通知
+    bell_icon: true  # 顶部铃铛图标
+  webhook:
+    enabled: false  # 默认禁用，需配置 URL 后启用
+    url: ""  # Webhook URL（例如：https://hooks.slack.com/services/XXX）
+    headers:
+      Content-Type: "application/json"
+
+# 告警规则定义
+rules:
+  # 1. WebSocket 断开告警
+  - id: "WS_DISCONNECTED"
+    name: "WebSocket 连接断开"
+    description: "WebSocket 连接断开超过指定时间"
+    enabled: true
+    severity: "CRITICAL"  # CRITICAL, WARNING, INFO
+    query:
+      metric: "ws_connected"
+      operator: "=="
+      value: false
+      window_seconds: 10
+    thresholds:
+      duration_seconds: 10  # 持续 10 秒触发
+    cooldown_seconds: 60  # 冷却期 60 秒
+    notify_channels: ["ui", "webhook"]
+
+  # 2. RPC 不健康告警
+  - id: "RPC_UNHEALTHY"
+    name: "RPC 节点不健康"
+    description: "RPC 调用失败次数超过阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "rpc_errors"
+      operator: ">"
+      value: 5
+      window_seconds: 60
+    thresholds:
+      error_count: 5
+    cooldown_seconds: 120
+    notify_channels: ["ui", "webhook"]
+
+  # 3. 干运行无成交告警
+  - id: "DRY_RUN_NO_FILLS"
+    name: "干运行模式无成交"
+    description: "干运行模式下有订单提交但无模拟成交"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "dry_run_no_fills"
+      operator: "=="
+      value: true
+      window_seconds: 60
+    conditions:
+      - field: "orders_submitted"
+        operator: ">"
+        value: 0
+      - field: "fills_simulated"
+        operator: "=="
+        value: 0
+    thresholds:
+      window_seconds: 60
+    cooldown_seconds: 300  # 5 分钟冷却
+    notify_channels: ["ui"]
+
+  # 4. 实盘无成交告警
+  - id: "LIVE_NO_FILLS"
+    name: "实盘模式无成交"
+    description: "实盘模式下有订单提交但无确认成交"
+    enabled: true
+    severity: "CRITICAL"
+    query:
+      metric: "live_no_fills"
+      operator: "=="
+      value: true
+      window_seconds: 60
+    conditions:
+      - field: "orders_submitted"
+        operator: ">"
+        value: 0
+      - field: "fills_confirmed"
+        operator: "=="
+        value: 0
+    thresholds:
+      window_seconds: 60
+    cooldown_seconds: 180  # 3 分钟冷却
+    notify_channels: ["ui", "webhook"]
+
+  # 5. 高拒绝率告警
+  - id: "HIGH_REJECT_RATE"
+    name: "订单拒绝率过高"
+    description: "订单被拒绝的比率超过阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "reject_rate"
+      operator: ">"
+      value: 0.05
+      window_seconds: 300
+    thresholds:
+      rate: 0.05  # 5%
+      window_seconds: 300  # 5 分钟窗口
+    cooldown_seconds: 300
+    notify_channels: ["ui", "webhook"]
+
+  # 6. 高延迟告警
+  - id: "LATENCY_P95_HIGH"
+    name: "P95 延迟过高"
+    description: "交易延迟 P95 超过阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "latency_p95_ms"
+      operator: ">"
+      value: 500
+      window_seconds: 300
+    thresholds:
+      latency_ms: 500
+      window_seconds: 300  # 5 分钟窗口
+    cooldown_seconds: 300
+    notify_channels: ["ui", "webhook"]
+
+  # 7. 熔断器开启告警
+  - id: "CIRCUIT_BREAKER_OPEN"
+    name: "熔断器已开启"
+    description: "熔断器处于开启状态，暂停交易"
+    enabled: true
+    severity: "CRITICAL"
+    query:
+      metric: "circuit_breaker_state"
+      operator: "=="
+      value: "OPEN"
+      window_seconds: 0  # 立即触发
+    thresholds: {}
+    cooldown_seconds: 600  # 10 分钟冷却
+    notify_channels: ["ui", "webhook"]
+
+  # 8. 低余额告警
+  - id: "LOW_BALANCE"
+    name: "账户余额过低"
+    description: "账户余额低于安全阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "balance"
+      operator: "<"
+      value: 100
+      window_seconds: 0
+    thresholds:
+      balance_usdc: 100
+    cooldown_seconds: 600
+    notify_channels: ["ui", "webhook"]
+
+  # 9. 仓位接近限制告警
+  - id: "POSITION_LIMIT_NEAR"
+    name: "仓位接近上限"
+    description: "已用仓位超过总限额的 90%"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "position_usage_percent"
+      operator: ">"
+      value: 90
+      window_seconds: 0
+    thresholds:
+      usage_percent: 90
+    cooldown_seconds: 300
+    notify_channels: ["ui", "webhook"]
+
+  # 10. 回撤过大告警
+  - id: "PNL_DRAWDOWN"
+    name: "PnL 回撤过大"
+    description: "从峰值回撤超过阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "drawdown_percent"
+      operator: ">"
+      value: 10
+      window_seconds: 0
+    thresholds:
+      drawdown_percent: 10
+    cooldown_seconds: 600
+    notify_channels: ["ui", "webhook"]
