@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyArb-X - 配置模板管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e7;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links a {
+            color: #a1a1aa;
+            text-decoration: none;
+            margin-left: 20px;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #667eea;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #e4e4e7;
+        }
+
+        .profiles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .profile-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .profile-card:hover {
+            transform: translateY(-2px);
+            border-color: #667eea;
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
+        }
+
+        .profile-card.selected {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .profile-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #e4e4e7;
+        }
+
+        .profile-description {
+            font-size: 14px;
+            color: #a1a1aa;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .profile-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .tag {
+            padding: 4px 12px;
+            background: rgba(102, 126, 234, 0.2);
+            border-radius: 12px;
+            font-size: 12px;
+            color: #667eea;
+        }
+
+        .tag.risk-high {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .tag.risk-low {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e4e4e7;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .diff-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .diff-item {
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .diff-field {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .diff-old {
+            color: #ef4444;
+        }
+
+        .diff-new {
+            color: #22c55e;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #e4e4e7;
+        }
+
+        .modal-body {
+            margin-bottom: 24px;
+            color: #a1a1aa;
+            line-height: 1.6;
+        }
+
+        .risk-warning {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+
+        .risk-warning-title {
+            color: #ef4444;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .risk-warning-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .risk-warning-list li {
+            padding: 4px 0;
+            color: #fca5a5;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            margin: 16px 0;
+        }
+
+        .checkbox-container input {
+            margin-right: 8px;
+        }
+
+        .checkbox-container label {
+            color: #e4e4e7;
+            cursor: pointer;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .audit-timeline {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .audit-item {
+            padding: 12px;
+            border-left: 3px solid #667eea;
+            background: rgba(255, 255, 255, 0.05);
+            margin-bottom: 12px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .audit-time {
+            font-size: 12px;
+            color: #a1a1aa;
+            margin-bottom: 4px;
+        }
+
+        .audit-action {
+            font-weight: 600;
+            color: #e4e4e7;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #e4e4e7;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #e4e4e7;
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 8px;
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            transform: translateX(400px);
+            transition: transform 0.3s;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success {
+            border-left: 4px solid #22c55e;
+        }
+
+        .toast.error {
+            border-left: 4px solid #ef4444;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a1a1aa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>⚙️ 配置模板管理</h1>
+            <nav class="nav-links">
+                <a href="dashboard.html">← 返回 Dashboard</a>
+                <a href="alerts.html">告警中心</a>
+            </nav>
+        </div>
+
+        <!-- Profiles Section -->
+        <div class="section">
+            <div class="section-title">内置配置模板</div>
+            <div id="profiles-grid" class="profiles-grid">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <!-- Diff Preview Section -->
+        <div class="section" id="diff-section" style="display: none;">
+            <div class="section-title">配置差异预览</div>
+            <div id="diff-content" class="diff-panel"></div>
+            <div style="margin-top: 16px; display: flex; gap: 12px;">
+                <button class="btn btn-primary" onclick="applySelectedProfile()">应用配置</button>
+                <button class="btn btn-secondary" onclick="cancelPreview()">取消</button>
+            </div>
+        </div>
+
+        <!-- Custom Profile Section -->
+        <div class="section">
+            <div class="section-title">保存自定义配置</div>
+            <form id="custom-profile-form" onsubmit="saveCustomProfile(event)">
+                <div class="form-group">
+                    <label>配置名称</label>
+                    <input type="text" id="custom-name" required placeholder="例如：my_trading_profile">
+                </div>
+                <div class="form-group">
+                    <label>描述</label>
+                    <textarea id="custom-description" rows="3" placeholder="描述这个配置的用途..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>标签（用逗号分隔）</label>
+                    <input type="text" id="custom-tags" placeholder="例如：custom, testing, experimental">
+                </div>
+                <button type="submit" class="btn btn-primary">保存为自定义配置</button>
+            </form>
+        </div>
+
+        <!-- Rollback Section -->
+        <div class="section">
+            <div class="section-title">回滚配置</div>
+            <p style="color: #a1a1aa; margin-bottom: 16px;">
+                回滚到上一份配置。基于审计日志中的 previous_config 快照。
+            </p>
+            <button class="btn btn-danger" onclick="rollbackConfig()">⚠️ 回滚到上一份配置</button>
+        </div>
+
+        <!-- Audit History Section -->
+        <div class="section">
+            <div class="section-title">配置变更历史</div>
+            <div id="audit-timeline" class="audit-timeline">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-title">⚠️ 确认应用配置</div>
+            <div class="modal-body">
+                <p>您即将应用配置模板：<strong id="confirm-profile-name"></strong></p>
+                <div id="confirm-risk-warnings" class="risk-warning" style="display: none;">
+                    <div class="risk-warning-title">⚠️ 风险警告</div>
+                    <ul id="risk-warning-list" class="risk-warning-list"></ul>
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="confirm-checkbox">
+                    <label for="confirm-checkbox">我了解风险并确认应用此配置</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" onclick="confirmApply()">确认应用</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <div id="toast-message"></div>
+    </div>
+
+    <script>
+        let selectedProfile = null;
+        let profilesData = [];
+
+        // Load profiles on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProfiles();
+            loadAuditHistory();
+        });
+
+        async function loadProfiles() {
+            try {
+                const response = await fetch('/api/profiles');
+                const data = await response.json();
+
+                if (data.status === 'ok') {
+                    profilesData = data.profiles;
+                    renderProfiles(profilesData);
+                } else {
+                    showToast('加载配置失败: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('加载配置失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderProfiles(profiles) {
+            const grid = document.getElementById('profiles-grid');
+
+            if (profiles.length === 0) {
+                grid.innerHTML = '<div class="loading">暂无配置模板</div>';
+                return;
+            }
+
+            grid.innerHTML = profiles.map(profile => `
+                <div class="profile-card" onclick="selectProfile('${profile.name}')">
+                    <div class="profile-name">${profile.name}</div>
+                    <div class="profile-description">${profile.description || '无描述'}</div>
+                    <div class="profile-tags">
+                        ${(profile.tags || []).map(tag =>
+                            `<span class="tag ${tag.includes('high-risk') ? 'risk-high' : tag.includes('low-risk') ? 'risk-low' : ''}">${tag}</span>`
+                        ).join('')}
+                    </div>
+                    <button class="btn btn-secondary" onclick="event.stopPropagation(); previewProfile('${profile.name}')">
+                        查看详情
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function previewProfile(name) {
+            try {
+                const response = await fetch(`/api/profiles/${name}`);
+                const data = await response.json();
+
+                if (data.status === 'ok') {
+                    const profile = data.profile;
+
+                    // Calculate diff (mock for now)
+                    const diffContent = generateDiffPreview(profile);
+
+                    document.getElementById('diff-content').innerHTML = diffContent;
+                    document.getElementById('diff-section').style.display = 'block';
+                    selectedProfile = name;
+
+                    // Scroll to diff section
+                    document.getElementById('diff-section').scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    showToast('加载配置详情失败: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('加载配置详情失败: ' + error.message, 'error');
+            }
+        }
+
+        function generateDiffPreview(profile) {
+            // Generate mock diff preview
+            const configFields = Object.keys(profile).filter(key =>
+                !['name', 'description', 'tags', 'version', 'updated_at', 'risk_warnings'].includes(key)
+            );
+
+            if (configFields.length === 0) {
+                return '<div class="diff-item">此配置使用默认值，无覆盖字段</div>';
+            }
+
+            return configFields.map(field => `
+                <div class="diff-item">
+                    <div class="diff-field">${field}</div>
+                    <div class="diff-new">新值: ${JSON.stringify(profile[field])}</div>
+                </div>
+            `).join('');
+        }
+
+        function selectProfile(name) {
+            selectedProfile = name;
+            previewProfile(name);
+        }
+
+        function cancelPreview() {
+            document.getElementById('diff-section').style.display = 'none';
+            selectedProfile = null;
+        }
+
+        async function applySelectedProfile() {
+            if (!selectedProfile) {
+                showToast('请先选择一个配置模板', 'error');
+                return;
+            }
+
+            try {
+                // First, apply profile to get risk warnings
+                const response = await fetch(`/api/profiles/${selectedProfile}/apply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.success && data.result) {
+                    const result = data.result;
+                    const riskWarnings = result.risk_warnings || [];
+
+                    // Show confirmation modal
+                    document.getElementById('confirm-profile-name').textContent = selectedProfile;
+
+                    const riskWarningDiv = document.getElementById('confirm-risk-warnings');
+                    const riskWarningList = document.getElementById('risk-warning-list');
+
+                    if (riskWarnings.length > 0) {
+                        riskWarningDiv.style.display = 'block';
+                        riskWarningList.innerHTML = riskWarnings.map(warning => {
+                            const warningTexts = {
+                                'SWITCH_TO_LIVE': '🔴 切换到实盘模式 - 将使用真实资金交易',
+                                'INCREASE_POSITION_SIZE': '⚠️ 增加仓位规模 - 风险敞口增大',
+                                'RELAX_SLIPPAGE': '⚠️ 放宽滑点限制 - 可能以更差价格成交',
+                                'LOWER_PROFIT_THRESHOLD': '⚠️ 降低利润阈值 - 可能执行低质量交易',
+                                'HIGH_RISK_PROFILE': '⚠️ 高风险配置 - 请确保您了解相关风险'
+                            };
+                            return `<li>${warningTexts[warning] || warning}</li>`;
+                        }).join('');
+                    } else {
+                        riskWarningDiv.style.display = 'none';
+                    }
+
+                    document.getElementById('confirm-checkbox').checked = false;
+                    document.getElementById('confirm-modal').classList.add('active');
+                } else {
+                    showToast('应用配置失败: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('应用配置失败: ' + error.message, 'error');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('confirm-modal').classList.remove('active');
+        }
+
+        function confirmApply() {
+            const checkbox = document.getElementById('confirm-checkbox');
+            const riskWarningDiv = document.getElementById('confirm-risk-warnings');
+
+            // If there are risk warnings, checkbox must be checked
+            if (riskWarningDiv.style.display !== 'none' && !checkbox.checked) {
+                showToast('请确认您了解风险', 'error');
+                return;
+            }
+
+            closeModal();
+            showToast(`配置 ${selectedProfile} 已应用`, 'success');
+            cancelPreview();
+
+            // Reload audit history
+            setTimeout(() => loadAuditHistory(), 1000);
+        }
+
+        async function saveCustomProfile(event) {
+            event.preventDefault();
+
+            const name = document.getElementById('custom-name').value;
+            const description = document.getElementById('custom-description').value;
+            const tags = document.getElementById('custom-tags').value.split(',').map(t => t.trim()).filter(t => t);
+
+            try {
+                const response = await fetch('/api/profiles/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description, tags })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('自定义配置已保存', 'success');
+                    document.getElementById('custom-profile-form').reset();
+                    loadProfiles(); // Reload to show new profile
+                } else {
+                    showToast('保存失败: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        async function rollbackConfig() {
+            if (!confirm('确定要回滚到上一份配置吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/profiles/rollback', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('配置已回滚', 'success');
+                    loadAuditHistory();
+                } else {
+                    showToast('回滚失败: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('回滚失败: ' + error.message, 'error');
+            }
+        }
+
+        async function loadAuditHistory() {
+            try {
+                const response = await fetch('/api/audit/config_changes?limit=20');
+                const data = await response.json();
+
+                if (data.status === 'ok') {
+                    renderAuditHistory(data.history);
+                }
+            } catch (error) {
+                console.error('Failed to load audit history:', error);
+            }
+        }
+
+        function renderAuditHistory(history) {
+            const timeline = document.getElementById('audit-timeline');
+
+            if (history.length === 0) {
+                timeline.innerHTML = '<div class="loading">暂无变更历史</div>';
+                return;
+            }
+
+            timeline.innerHTML = history.map(item => `
+                <div class="audit-item">
+                    <div class="audit-time">${new Date(item.timestamp).toLocaleString('zh-CN')}</div>
+                    <div class="audit-action">
+                        ${item.applied_by === 'rollback' ? '↩️ 回滚' : '📝 应用配置'}: ${item.profile_name}
+                    </div>
+                    ${item.risk_warnings && item.risk_warnings.length > 0 ? `
+                        <div style="margin-top: 8px; font-size: 12px; color: #fca5a5;">
+                            ⚠️ 风险: ${item.risk_warnings.join(', ')}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toast-message');
+
+            toast.className = `toast ${type}`;
+            toastMessage.textContent = message;
+
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

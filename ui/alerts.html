@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyArb-X - 告警中心</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e7;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links a {
+            color: #a1a1aa;
+            text-decoration: none;
+            margin-left: 20px;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #667eea;
+        }
+
+        .alerts-container {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 24px;
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .panel-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #e4e4e7;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .alert-rules {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .rule-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .rule-card:hover {
+            border-color: #667eea;
+        }
+
+        .rule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .rule-name {
+            font-weight: 600;
+            color: #e4e4e7;
+        }
+
+        .rule-id {
+            font-size: 11px;
+            color: #a1a1aa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .rule-description {
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .rule-severity {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .rule-severity.CRITICAL {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .rule-severity.WARNING {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .rule-severity.INFO {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .toggle-slider {
+            background-color: #667eea;
+        }
+
+        input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        .alert-timeline {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .alert-item {
+            border-left: 3px solid;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 0 8px 8px 0;
+            transition: all 0.3s;
+        }
+
+        .alert-item.FIRING {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .alert-item.RESOLVED {
+            border-color: #22c55e;
+        }
+
+        .alert-item.ACKED {
+            border-color: #fbbf24;
+        }
+
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .alert-name {
+            font-weight: 600;
+            color: #e4e4e7;
+        }
+
+        .alert-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .alert-status.FIRING {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            animation: pulse 2s infinite;
+        }
+
+        .alert-status.RESOLVED {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .alert-status.ACKED {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .alert-time {
+            font-size: 12px;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+        }
+
+        .alert-context {
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-bottom: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e4e4e7;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .active-alerts-count {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-top: 4px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a1a1aa;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #a1a1aa;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🔔 告警中心</h1>
+            <nav class="nav-links">
+                <a href="dashboard.html">← 返回 Dashboard</a>
+                <a href="profiles.html">配置模板</a>
+            </nav>
+        </div>
+
+        <!-- Active Alerts Stats -->
+        <div class="panel" style="margin-bottom: 24px;">
+            <div class="active-alerts-count">
+                <div class="stat-card">
+                    <div class="stat-value" id="firing-count">0</div>
+                    <div class="stat-label">🔴 活跃告警</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="resolved-count">0</div>
+                    <div class="stat-label">✅ 已解决</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-count">0</div>
+                    <div class="stat-label">📊 总告警数</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Container -->
+        <div class="alerts-container">
+            <!-- Left Panel: Alert Rules -->
+            <div class="panel">
+                <div class="panel-title">
+                    告警规则
+                    <button class="btn btn-sm btn-secondary" onclick="testWebhook()">测试 Webhook</button>
+                </div>
+                <div id="alert-rules" class="alert-rules">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Alert Timeline -->
+            <div class="panel">
+                <div class="panel-title">告警时间线</div>
+                <div id="alert-timeline" class="alert-timeline">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pollingInterval = null;
+
+        // Load alerts on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAlertRules();
+            loadAlertState();
+            loadAlertHistory();
+
+            // Start polling for updates every 5 seconds
+            pollingInterval = setInterval(() => {
+                loadAlertState();
+                loadAlertHistory();
+            }, 5000);
+        });
+
+        // Stop polling when page is hidden
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                }
+            } else {
+                pollingInterval = setInterval(() => {
+                    loadAlertState();
+                    loadAlertHistory();
+                }, 5000);
+            }
+        });
+
+        async function loadAlertRules() {
+            try {
+                // Note: This endpoint would need to be implemented in alert_engine.py
+                // For now, we'll use the static rules from alerts.yaml
+                const response = await fetch('/api/alerts/rules');
+                const data = await response.json();
+
+                if (data.rules) {
+                    renderAlertRules(data.rules);
+                } else {
+                    // If endpoint not implemented, show default rules
+                    renderDefaultRules();
+                }
+            } catch (error) {
+                console.error('Failed to load alert rules:', error);
+                renderDefaultRules();
+            }
+        }
+
+        function renderDefaultRules() {
+            const rules = [
+                { id: 'WS_DISCONNECTED', name: 'WebSocket 连接断开', description: 'WebSocket 连接断开超过 10 秒', severity: 'CRITICAL', enabled: true },
+                { id: 'DRY_RUN_NO_FILLS', name: '干运行无成交', description: '干运行模式下有订单但无模拟成交', severity: 'WARNING', enabled: true },
+                { id: 'LIVE_NO_FILLS', name: '实盘无成交', description: '实盘模式下有订单但无确认成交', severity: 'CRITICAL', enabled: true },
+                { id: 'HIGH_REJECT_RATE', name: '订单拒绝率过高', description: '订单拒绝率超过 5%', severity: 'WARNING', enabled: true },
+                { id: 'LATENCY_P95_HIGH', name: 'P95 延迟过高', description: '交易延迟 P95 超过 500ms', severity: 'WARNING', enabled: true },
+                { id: 'LOW_BALANCE', name: '账户余额过低', description: '账户余额低于 $100 USDC', severity: 'WARNING', enabled: true },
+            ];
+
+            renderAlertRules(rules);
+        }
+
+        function renderAlertRules(rules) {
+            const container = document.getElementById('alert-rules');
+
+            if (!rules || rules.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div>暂无告警规则</div>';
+                return;
+            }
+
+            container.innerHTML = rules.map(rule => `
+                <div class="rule-card">
+                    <div class="rule-header">
+                        <div>
+                            <div class="rule-name">${rule.name}</div>
+                            <div class="rule-id">${rule.id}</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${rule.enabled ? 'checked' : ''} onchange="toggleRule('${rule.id}', this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <span class="rule-severity ${rule.severity}">${rule.severity}</span>
+                    <div class="rule-description">${rule.description}</div>
+                </div>
+            `).join('');
+        }
+
+        async function toggleRule(ruleId, enabled) {
+            try {
+                // Note: This would need to be implemented
+                console.log(`Toggle rule ${ruleId}: ${enabled}`);
+            } catch (error) {
+                console.error('Failed to toggle rule:', error);
+            }
+        }
+
+        async function loadAlertState() {
+            try {
+                // Note: This endpoint would need to be implemented in web_server.py
+                const response = await fetch('/api/alerts/state');
+                const data = await response.json();
+
+                if (data.active_alerts) {
+                    updateStats(data);
+                    renderActiveAlerts(data.active_alerts);
+                }
+            } catch (error) {
+                console.error('Failed to load alert state:', error);
+                // Show empty state for now
+                document.getElementById('alert-timeline').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <div>当前没有活跃告警</div>
+                    </div>
+                `;
+            }
+        }
+
+        function updateStats(state) {
+            const firingCount = state.active_alerts ? state.active_alerts.filter(a => a.status === 'FIRING').length : 0;
+
+            document.getElementById('firing-count').textContent = firingCount;
+            document.getElementById('resolved-count').textContent = state.total_resolved || 0;
+            document.getElementById('total-count').textContent = state.total_alerts || 0;
+        }
+
+        function renderActiveAlerts(alerts) {
+            const container = document.getElementById('alert-timeline');
+
+            if (!alerts || alerts.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <div>当前没有活跃告警</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = alerts.map(alert => `
+                <div class="alert-item ${alert.status}">
+                    <div class="alert-header">
+                        <div>
+                            <div class="alert-name">${alert.name}</div>
+                            <div class="alert-time">${new Date(alert.fired_at).toLocaleString('zh-CN')}</div>
+                        </div>
+                        <span class="alert-status ${alert.status}">${alert.status}</span>
+                    </div>
+                    ${alert.context ? `
+                        <div class="alert-context">
+                            ${alert.context.current_value !== undefined ? `当前值: ${alert.context.current_value}<br>` : ''}
+                            ${alert.context.threshold !== undefined ? `阈值: ${alert.context.threshold}` : ''}
+                        </div>
+                    ` : ''}
+                    ${alert.status === 'FIRING' ? `
+                        <button class="btn btn-sm btn-secondary" onclick="ackAlert('${alert.alert_id}')">确认告警</button>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function loadAlertHistory() {
+            // This would load historical alerts from /api/alerts/history
+            // For now, we're showing active alerts in the timeline
+        }
+
+        async function ackAlert(alertId) {
+            try {
+                // Note: This endpoint would need to be implemented
+                console.log(`ACK alert: ${alertId}`);
+                // await fetch(`/api/alerts/${alertId}/ack`, { method: 'POST' });
+                // loadAlertState();
+            } catch (error) {
+                console.error('Failed to ACK alert:', error);
+            }
+        }
+
+        async function testWebhook() {
+            try {
+                // Note: This endpoint would need to be implemented
+                alert('Webhook 测试功能将在后端 API 实现后可用');
+            } catch (error) {
+                console.error('Failed to test webhook:', error);
+            }
+        }
+    </script>
+</body>
+</html>
