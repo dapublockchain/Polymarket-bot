@@ -1,0 +1,39 @@
+# PolyArb-X Sandbox Configuration
+# Conservative limits for safe testing
+
+version: "1.0"
+
+# Sandbox mode enabled
+sandbox_mode: true
+dry_run: true
+
+# Trading limits (conservative)
+trading:
+  max_position_size: 100.0      # $100 max per trade
+  min_profit_threshold: 0.02    # 2% minimum profit
+  max_gas_cost: 0.5             # $0.50 max gas
+  max_slippage: 0.01            # 1% max slippage
+  max_trades_per_hour: 10       # Max 10 trades per hour
+  max_daily_loss: 20.0          # Stop after $20 daily loss
+
+# Circuit breaker (sensitive)
+circuit_breaker:
+  enabled: true
+  consecutive_failures_threshold: 3  # Trip after 3 failures
+  failure_rate_threshold: 0.3         # 30% failure rate
+  gas_cost_threshold: 1.0              # $1 gas threshold
+  open_timeout_seconds: 120            # 2 minutes in OPEN
+  half_open_max_calls: 2               # Test with 2 calls
+
+# Retry policy (conservative)
+retry:
+  max_retries: 2
+  base_delay_ms: 2000         # Start with 2s delay
+  max_delay_ms: 10000         # Max 10s delay
+  exponential_backoff: true
+  jitter: true
+
+# WebSocket settings
+ws_max_reconnect_attempts: 5
+ws_reconnect_delay: 2.0
+ws_heartbeat_timeout: 30
