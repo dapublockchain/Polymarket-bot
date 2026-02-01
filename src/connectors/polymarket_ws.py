@@ -13,6 +13,7 @@ from json import JSONDecodeError
 import websockets
 
 from src.core.models import OrderBook, Bid, Ask
+from src.core.telemetry import generate_trace_id, log_event, EventType as TeleEventType
 
 logger = logging.getLogger(__name__)
 
@@ -192,9 +193,27 @@ class PolymarketWSClient:
         Args:
             message: Snapshot message
         """
+        # Record event received timestamp for latency tracking
+        event_received_ms = int(asyncio.get_event_loop().time() * 1000)
+
         token_id = message.get("token_id")
         if not token_id:
             return
+
+        # Generate trace_id for this snapshot
+        trace_id = generate_trace_id()
+
+        # Log telemetry event
+        await log_event(
+            TeleEventType.EVENT_RECEIVED,
+            {
+                "token_id": token_id,
+                "message_type": "snapshot",
+                "bids_count": len(message.get("bids", [])),
+                "asks_count": len(message.get("asks", []))
+            },
+            trace_id=trace_id
+        )
 
         bids_raw = message.get("bids", [])
         asks_raw = message.get("asks", [])
@@ -226,6 +245,7 @@ class PolymarketWSClient:
             bids=bids,
             asks=asks,
             last_update=int(asyncio.get_event_loop().time() * 1000),
+            event_received_ms=event_received_ms,
         )
 
         logger.info(f"已更新订单本: {token_id} (快照 - {len(bids)} 买单, {len(asks)} 卖单)")
@@ -239,11 +259,29 @@ class PolymarketWSClient:
         Args:
             message: Update message
         """
+        # Record event received timestamp for latency tracking
+        event_received_ms = int(asyncio.get_event_loop().time() * 1000)
+
         token_id = message.get("token_id")
         if not token_id or token_id not in self.orderbooks:
             return
 
         orderbook = self.orderbooks[token_id]
+
+        # Generate trace_id for this update
+        trace_id = generate_trace_id()
+
+        # Log telemetry event
+        await log_event(
+            TeleEventType.EVENT_RECEIVED,
+            {
+                "token_id": token_id,
+                "message_type": "update",
+                "bids_count": len(message.get("bids", [])),
+                "asks_count": len(message.get("asks", []))
+            },
+            trace_id=trace_id
+        )
 
         # Update bids
         bids_raw = message.get("bids", [])
@@ -278,6 +316,7 @@ class PolymarketWSClient:
         orderbook.asks.sort(key=lambda x: x.price)
 
         orderbook.last_update = int(asyncio.get_event_loop().time() * 1000)
+        orderbook.event_received_ms = event_received_ms
 
         logger.info(f"已更新订单本: {token_id} (更新 - {len(bids_raw)} 买单变动, {len(asks_raw)} 卖单变动)")
 

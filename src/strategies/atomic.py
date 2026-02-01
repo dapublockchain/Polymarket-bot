@@ -6,8 +6,12 @@ guaranteeing a profit when the market resolves.
 """
 from decimal import Decimal
 from typing import Optional
+import asyncio
 
 from src.core.models import OrderBook, Ask, ArbitrageOpportunity
+from src.core.telemetry import log_event, EventType as TeleEventType
+from src.core.metrics import record_latency
+from src.core.edge import EdgeBreakdown, Decision, calculate_net_edge
 
 
 class AtomicArbitrageStrategy:
@@ -89,10 +93,11 @@ class AtomicArbitrageStrategy:
         # VWAP = total cost / total tokens
         return total_cost / total_tokens
 
-    def check_opportunity(
+    async def check_opportunity(
         self,
         yes_orderbook: OrderBook,
         no_orderbook: OrderBook,
+        trace_id: Optional[str] = None,
     ) -> Optional[ArbitrageOpportunity]:
         """
         Check if an arbitrage opportunity exists for a YES/NO pair.
@@ -100,13 +105,22 @@ class AtomicArbitrageStrategy:
         Args:
             yes_orderbook: Order book for YES token
             no_orderbook: Order book for NO token
+            trace_id: Optional trace_id for telemetry
 
         Returns:
             ArbitrageOpportunity if profitable, None otherwise
         """
+        # Record start time for latency tracking
+        signal_start_ms = int(asyncio.get_event_loop().time() * 1000)
+
         # Check if both order books have asks
         if not yes_orderbook.asks or not no_orderbook.asks:
             return None
+
+        # Calculate latencies from orderbook timestamps
+        ws_to_book_ms = 0.0
+        if yes_orderbook.event_received_ms:
+            ws_to_book_ms = signal_start_ms - yes_orderbook.event_received_ms
 
         try:
             # Calculate VWAP for buying both tokens
@@ -146,6 +160,34 @@ class AtomicArbitrageStrategy:
 
         # Calculate total profit for the trade
         total_net_profit = net_profit_per_unit * self.trade_size
+
+        # Record latency metrics
+        signal_end_ms = int(asyncio.get_event_loop().time() * 1000)
+        book_to_signal_ms = signal_end_ms - signal_start_ms
+
+        if trace_id:
+            # Record latency metrics
+            await record_latency(
+                trace_id=trace_id,
+                ws_to_book_update_ms=ws_to_book_ms,
+                book_to_signal_ms=book_to_signal_ms,
+            )
+
+            # Log opportunity detected event
+            await log_event(
+                TeleEventType.OPPORTUNITY_DETECTED,
+                {
+                    "strategy": "atomic",
+                    "yes_token_id": yes_orderbook.token_id,
+                    "no_token_id": no_orderbook.token_id,
+                    "yes_price": str(yes_vwap),
+                    "no_price": str(no_vwap),
+                    "cost_per_unit": str(cost_per_unit),
+                    "expected_profit": str(total_net_profit),
+                    "profit_percentage": str(profit_percentage),
+                },
+                trace_id=trace_id
+            )
 
         # Create arbitrage opportunity
         return ArbitrageOpportunity(

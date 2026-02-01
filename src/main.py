@@ -14,6 +14,8 @@ from loguru import logger
 from src.core.config import Config
 from src.connectors.polymarket_ws import PolymarketWSClient
 from src.strategies.atomic import AtomicArbitrageStrategy
+from src.core.recorder import EventRecorder
+from src.core.telemetry import generate_trace_id, TraceContext
 
 
 async def main():
@@ -34,6 +36,10 @@ async def main():
     logger.info("启动 PolyArb-X (模拟模式)")
     logger.info(f"交易规模: ${Config.TRADE_SIZE}")
     logger.info(f"最小利润阈值: {Config.MIN_PROFIT_THRESHOLD * 100}%")
+
+    # Initialize event recorder
+    recorder = EventRecorder(buffer_size=100)
+    logger.info("事件记录器已初始化")
 
     # Initialize WebSocket client
     ws_client = PolymarketWSClient(
@@ -83,7 +89,18 @@ async def main():
                 no_book = ws_client.get_order_book(example_tokens[1])
 
                 if yes_book and no_book:
-                    opportunity = strategy.check_opportunity(yes_book, no_book)
+                    # Record orderbook snapshot
+                    await recorder.record_orderbook_snapshot(
+                        token_id=yes_book.token_id,
+                        bids=[{"price": str(b.price), "size": str(b.size)} for b in yes_book.bids],
+                        asks=[{"price": str(a.price), "size": str(a.size)} for a in yes_book.asks]
+                    )
+
+                    # Generate trace_id for this opportunity check
+                    trace_id = generate_trace_id()
+
+                    # Check for opportunity with trace_id
+                    opportunity = await strategy.check_opportunity(yes_book, no_book, trace_id=trace_id)
 
                     if opportunity:
                         logger.info("检测到套利机会:")
@@ -94,8 +111,28 @@ async def main():
                         logger.info(f"  预期利润: ${opportunity.expected_profit:.4f}")
                         logger.info(f"  原因: {opportunity.reason}")
 
+                        # Record signal
+                        await recorder.record_signal(
+                            trace_id=trace_id,
+                            strategy=opportunity.strategy,
+                            yes_token=opportunity.yes_token_id,
+                            no_token=opportunity.no_token_id,
+                            yes_price=opportunity.yes_price,
+                            no_price=opportunity.no_price,
+                            expected_profit=opportunity.expected_profit
+                        )
+
                         if Config.DRY_RUN:
                             logger.info("  [模拟模式] 未执行交易")
+
+                            # Record simulated order result
+                            await recorder.record_order_result(
+                                trace_id=trace_id,
+                                success=True,
+                                tx_hash="0x_simulated",
+                                gas_used=0,
+                                actual_price=opportunity.yes_price
+                            )
                         else:
                             logger.warning("  [实盘模式] 将在此处执行交易")
 
@@ -112,6 +149,10 @@ async def main():
         raise
 
     finally:
+        # Flush recorder before exiting
+        await recorder.flush()
+        logger.info("事件记录器已刷新")
+
         await ws_client.disconnect()
         logger.info("已断开与 Polymarket WebSocket 的连接")
 

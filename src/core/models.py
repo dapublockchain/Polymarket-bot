@@ -48,6 +48,10 @@ class OrderBook(BaseModel):
     bids: list[Bid] = Field(default_factory=list, description="Sorted bids (highest first)")
     asks: list[Ask] = Field(default_factory=list, description="Sorted asks (lowest first)")
     last_update: int = Field(..., description="Timestamp of last update (ms)")
+    event_received_ms: Optional[int] = Field(
+        None,
+        description="Timestamp when this orderbook data was received (ms), for latency tracking"
+    )
 
     def get_best_bid(self) -> Optional[Bid]:
         """Get highest bid (best price for selling)."""

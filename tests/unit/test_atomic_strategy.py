@@ -115,9 +115,9 @@ class TestCheckOpportunity:
             last_update=1234567890,
         )
 
-    def test_profitable_arbitrage_detected(self, strategy, yes_orderbook, no_orderbook):
+    async def test_profitable_arbitrage_detected(self, strategy, yes_orderbook, no_orderbook):
         """Test that profitable arbitrage is detected."""
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
 
         assert opportunity is not None
         assert isinstance(opportunity, ArbitrageOpportunity)
@@ -126,7 +126,7 @@ class TestCheckOpportunity:
         assert opportunity.expected_profit > 0
         assert opportunity.net_profit > 0
 
-    def test_no_arbitrage_when_prices_sum_above_one(self, strategy):
+    async def test_no_arbitrage_when_prices_sum_above_one(self, strategy):
         """Test no arbitrage when YES + NO prices > 1.0."""
         yes_orderbook = OrderBook(
             token_id="yes_123",
@@ -145,10 +145,10 @@ class TestCheckOpportunity:
             last_update=1234567890,
         )
 
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
         assert opportunity is None
 
-    def test_no_arbitrage_when_profit_below_threshold(self, strategy):
+    async def test_no_arbitrage_when_profit_below_threshold(self, strategy):
         """Test no arbitrage when profit is below minimum threshold."""
         yes_orderbook = OrderBook(
             token_id="yes_123",
@@ -168,13 +168,13 @@ class TestCheckOpportunity:
         )
 
         # Sum = 0.995, but after fees it's not profitable
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
         # This might return an opportunity with very low profit, depending on fees
         # We'll verify in implementation
 
-    def test_arbitrage_includes_fees_and_gas(self, strategy, yes_orderbook, no_orderbook):
+    async def test_arbitrage_includes_fees_and_gas(self, strategy, yes_orderbook, no_orderbook):
         """Test that arbitrage calculation includes fees and gas."""
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
 
         if opportunity:
             # Verify fees are included
@@ -189,7 +189,7 @@ class TestCheckOpportunity:
             expected_net = gross_profit_per_unit * opportunity.trade_size - opportunity.fees - opportunity.gas_estimate
             assert abs(opportunity.net_profit - expected_net) < Decimal("0.01")
 
-    def test_no_arbitrage_with_empty_orderbook(self, strategy):
+    async def test_no_arbitrage_with_empty_orderbook(self, strategy):
         """Test no arbitrage when one order book is empty."""
         yes_orderbook = OrderBook(
             token_id="yes_123",
@@ -206,10 +206,10 @@ class TestCheckOpportunity:
             last_update=1234567890,
         )
 
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
         assert opportunity is None
 
-    def test_no_arbitrage_with_insufficient_liquidity(self, strategy):
+    async def test_no_arbitrage_with_insufficient_liquidity(self, strategy):
         """Test no arbitrage when insufficient liquidity for trade size."""
         yes_orderbook = OrderBook(
             token_id="yes_123",
@@ -228,7 +228,7 @@ class TestCheckOpportunity:
             last_update=1234567890,
         )
 
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
         # Should return None or opportunity with reduced size
         assert opportunity is None or opportunity.trade_size < Decimal("10")
 
@@ -263,12 +263,12 @@ class TestEdgeCases:
         )
         assert strategy.trade_size == Decimal("0.01")
 
-    def test_gas_estimate_can_be_zero(self, strategy):
+    async def test_gas_estimate_can_be_zero(self, strategy):
         """Test that gas estimate can be zero (for dry-run mode)."""
         # In dry-run mode, gas estimate might be zero
         assert True  # Placeholder for implementation verification
 
-    def test_exact_threshold_profit(self, strategy):
+    async def test_exact_threshold_profit(self, strategy):
         """Test arbitrage at exactly minimum profit threshold."""
         yes_orderbook = OrderBook(
             token_id="yes_123",
@@ -287,6 +287,6 @@ class TestEdgeCases:
             last_update=1234567890,
         )
 
-        opportunity = strategy.check_opportunity(yes_orderbook, no_orderbook)
+        opportunity = await strategy.check_opportunity(yes_orderbook, no_orderbook)
         # Sum = 0.98, which is profitable after fees
         # Should detect opportunity
