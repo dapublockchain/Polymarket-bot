@@ -327,3 +327,350 @@ class TestReconnectLogic:
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+class TestMessageCache:
+    """Test suite for MessageCache."""
+
+    def test_message_cache_add_new(self):
+        """Test adding new message to cache."""
+        from src.connectors.polymarket_ws import MessageCache
+
+        cache = MessageCache(max_size=100)
+
+        result = cache.add("msg_1")
+
+        assert result is True  # New message
+        assert "msg_1" in cache.cache
+        assert cache.misses == 1
+
+    def test_message_cache_duplicate(self):
+        """Test detecting duplicate message."""
+        from src.connectors.polymarket_ws import MessageCache
+
+        cache = MessageCache(max_size=100)
+
+        cache.add("msg_1")
+        result = cache.add("msg_1")
+
+        assert result is False  # Duplicate
+        assert cache.hits == 1
+
+    def test_message_cache_eviction(self):
+        """Test LRU eviction when cache is full."""
+        from src.connectors.polymarket_ws import MessageCache
+
+        cache = MessageCache(max_size=3)
+
+        cache.add("msg_1")
+        cache.add("msg_2")
+        cache.add("msg_3")
+        cache.add("msg_4")  # Should evict msg_1
+
+        assert "msg_1" not in cache.cache
+        assert "msg_4" in cache.cache
+        assert len(cache.cache) == 3
+
+    def test_message_cache_get_stats(self):
+        """Test getting cache statistics."""
+        from src.connectors.polymarket_ws import MessageCache
+
+        cache = MessageCache(max_size=100)
+
+        cache.add("msg_1")
+        cache.add("msg_1")  # Duplicate
+        cache.add("msg_2")
+
+        stats = cache.get_stats()
+
+        assert stats["size"] == 2
+        assert stats["max_size"] == 100
+        assert stats["hits"] == 1
+        assert stats["misses"] == 2
+        assert stats["hit_rate"] == 1/3
+
+    def test_message_cache_lru_ordering(self):
+        """Test that recently used items are moved to end."""
+        from src.connectors.polymarket_ws import MessageCache
+        import time
+
+        cache = MessageCache(max_size=3)
+
+        cache.add("msg_1")
+        time.sleep(0.01)
+        cache.add("msg_2")
+        time.sleep(0.01)
+        cache.add("msg_3")
+
+        # Access msg_1 (moves to end)
+        cache.add("msg_1")
+
+        # Add new message - should evict msg_2 (oldest after msg_1 was accessed)
+        cache.add("msg_4")
+
+        assert "msg_1" in cache.cache  # Was accessed, still present
+        assert "msg_2" not in cache.cache  # Evicted
+        assert "msg_4" in cache.cache
+
+
+class TestStatsAndTracking:
+    """Test suite for statistics and tracking."""
+
+    @pytest.mark.asyncio
+    async def test_get_stats_includes_all_fields(self):
+        """Test get_stats returns all expected fields."""
+        client = PolymarketWSClient()
+
+        stats = client.get_stats()
+
+        expected_keys = {
+            "connected", "connect_count", "disconnect_count",
+            "message_count", "duplicate_count", "sequence_gap_count",
+            "subscriptions", "orderbooks", "cache_stats",
+            "heartbeat_ok", "time_since_last_message_seconds",
+        }
+
+        assert set(stats.keys()) == expected_keys
+
+    @pytest.mark.asyncio
+    async def test_get_stats_with_messages(self):
+        """Test stats reflect message handling."""
+        client = PolymarketWSClient()
+
+        # Simulate some messages
+        message = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "bids": [{"price": "0.5", "size": "100", "token_id": "test_token"}],
+            "asks": [{"price": "0.5", "size": "100", "token_id": "test_token"}],
+        }
+
+        await client._handle_message(message)
+
+        stats = client.get_stats()
+
+        assert stats["message_count"] == 1
+        assert stats["orderbooks"] == 1
+        assert stats["duplicate_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_sequence_tracking(self):
+        """Test sequence number tracking."""
+        client = PolymarketWSClient()
+
+        # Send messages with sequence numbers
+        for i in range(1, 4):
+            message = {
+                "type": "snapshot",
+                "token_id": "test_token",
+                "sequence_number": i,
+                "bids": [],
+                "asks": [],
+            }
+            await client._handle_message(message)
+
+        assert client._sequence_numbers["test_token"] == 3
+
+    @pytest.mark.asyncio
+    async def test_sequence_gap_detection(self):
+        """Test detection of sequence gaps."""
+        client = PolymarketWSClient()
+
+        # Send message with sequence 1
+        message1 = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "sequence_number": 1,
+            "bids": [],
+            "asks": [],
+        }
+        await client._handle_message(message1)
+
+        # Send message with sequence 5 (gap of 3)
+        message2 = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "sequence_number": 5,
+            "bids": [],
+            "asks": [],
+        }
+        await client._handle_message(message2)
+
+        # Should detect gap
+        stats = client.get_stats()
+        assert stats["sequence_gap_count"] >= 3
+
+    @pytest.mark.asyncio
+    async def test_duplicate_detection(self):
+        """Test duplicate message detection."""
+        client = PolymarketWSClient()
+
+        message = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "sequence_number": 1,
+            "bids": [],
+            "asks": [],
+        }
+
+        # Send same message twice
+        await client._handle_message(message)
+        await client._handle_message(message)
+
+        stats = client.get_stats()
+
+        # Should detect duplicate
+        assert stats["duplicate_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_timeout_detection(self):
+        """Test heartbeat timeout detection."""
+        client = PolymarketWSClient(heartbeat_timeout=1)
+
+        # Initially, no heartbeat received
+        stats = client.get_stats()
+        assert stats["heartbeat_ok"] is True  # No messages yet, considered OK
+
+        # Send a message
+        message = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "bids": [],
+            "asks": [],
+        }
+        await client._handle_message(message)
+
+        stats = client.get_stats()
+        assert stats["heartbeat_ok"] is True
+        assert stats["time_since_last_message_seconds"] < 1
+
+    @pytest.mark.asyncio
+    async def test_message_without_token_id(self):
+        """Test handling message without token_id."""
+        client = PolymarketWSClient()
+
+        message = {
+            "type": "snapshot",
+            "bids": [],
+            "asks": [],
+        }
+
+        # Should not raise, just skip
+        await client._handle_message(message)
+
+        assert len(client.orderbooks) == 0
+
+
+class TestResubscription:
+    """Test suite for resubscription behavior."""
+
+    @pytest.mark.asyncio
+    async def test_resubscribe_after_reconnect(self):
+        """Test that subscriptions are restored after reconnect."""
+        client = PolymarketWSClient()
+
+        # Mock initial connection
+        client._ws = AsyncMock()
+        client._ws.send = AsyncMock()
+        client.connected = True
+
+        # Subscribe to tokens
+        await client.subscribe("token_1")
+        await client.subscribe("token_2")
+
+        assert len(client._subscriptions) == 2
+
+        # Simulate reconnect
+        async def mock_connect(*args, **kwargs):
+            new_ws = AsyncMock()
+            new_ws.send = AsyncMock()
+            return new_ws
+
+        with patch("src.connectors.polymarket_ws.websockets.connect", side_effect=mock_connect):
+            await client.connect()
+
+            # Should have resubscribed to previous subscriptions
+            assert client._ws.send.call_count >= 2
+
+
+class TestContextManager:
+    """Test suite for async context manager."""
+
+    @pytest.mark.asyncio
+    async def test_context_manager_enter_exit(self):
+        """Test using client as context manager."""
+        async def mock_connect(*args, **kwargs):
+            mock_ws = AsyncMock()
+            mock_ws.close = AsyncMock()
+            return mock_ws
+
+        with patch("src.connectors.polymarket_ws.websockets.connect", side_effect=mock_connect):
+            async with PolymarketWSClient() as client:
+                assert client.connected is True
+
+            # After exit, should be disconnected
+            assert client.connected is False
+
+
+class TestEdgeCases:
+    """Test suite for edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_empty_message_handling(self):
+        """Test handling of empty messages."""
+        client = PolymarketWSClient()
+
+        # Empty string should be handled
+        client._message_cache.add("")  # Should not crash
+
+    @pytest.mark.asyncio
+    async def test_zero_sequence_number(self):
+        """Test handling of zero sequence number."""
+        client = PolymarketWSClient()
+
+        message = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "sequence_number": 0,
+            "bids": [],
+            "asks": [],
+        }
+
+        # Should not trigger sequence validation for 0
+        await client._handle_message(message)
+
+        assert client._sequence_numbers.get("test_token", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_very_small_prices(self):
+        """Test handling of very small prices (edge case)."""
+        from decimal import Decimal
+
+        client = PolymarketWSClient()
+
+        # Use very small but positive prices
+        message = {
+            "type": "snapshot",
+            "token_id": "test_token",
+            "bids": [{"price": "0.001", "size": "100", "token_id": "test_token"}],
+            "asks": [{"price": "0.002", "size": "100", "token_id": "test_token"}],
+        }
+
+        # Should handle small positive prices
+        await client._handle_message(message)
+
+        assert "test_token" in client.orderbooks
+
+    @pytest.mark.asyncio
+    async def test_very_large_message_cache(self):
+        """Test behavior with very large message cache."""
+        from src.connectors.polymarket_ws import MessageCache
+
+        cache = MessageCache(max_size=10000)
+
+        # Add many messages
+        for i in range(20000):
+            cache.add(f"msg_{i}")
+
+        # Should stay bounded
+        assert len(cache.cache) <= 10000

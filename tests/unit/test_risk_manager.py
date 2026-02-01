@@ -445,3 +445,420 @@ class TestEdgeCases:
         is_valid = risk_mgr.validate_signal(signal, balance, gas_cost)
 
         assert is_valid is False
+
+
+class TestValidateSignalWithEdge:
+    """Test suite for validate_signal_with_edge method with detailed breakdown."""
+
+    @pytest.fixture
+    def risk_mgr(self):
+        """Create a RiskManager for testing."""
+        return RiskManager(
+            max_position_size=Decimal("1000"),
+            min_profit_threshold=Decimal("0.01"),
+            max_gas_cost=Decimal("1.0"),
+            max_slippage=Decimal("0.01"),
+        )
+
+    @pytest.fixture
+    def profitable_signal(self):
+        """Create a profitable trading signal."""
+        from src.core.models import Signal
+        return Signal(
+            strategy="atomic_arbitrage",
+            token_id="yes_123",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("0.5"),  # $0.50 profit
+            trade_size=Decimal("10"),  # $10 trade
+            yes_price=Decimal("0.48"),
+            no_price=Decimal("0.50"),
+            confidence=0.95,
+            reason="Profitable arbitrage opportunity",
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_accepts_profitable_signal(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that profitable signal is accepted with detailed breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+        fees = Decimal("0.05")
+        slippage = Decimal("0.02")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost, fees, slippage
+        )
+
+        assert result.decision == Decision.ACCEPT
+        assert result.gross_edge == Decimal("0.5")
+        assert result.net_edge > 0
+        assert "Acceptable profit" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_insufficient_balance(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test rejection due to insufficient balance with edge breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("5")  # Less than trade_size of 10
+        gas_cost = Decimal("0.1")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Insufficient balance" in result.reason
+        assert result.gross_edge == Decimal("0.5")
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_position_limit(
+        self, risk_mgr
+    ):
+        """Test rejection due to position limit with edge breakdown."""
+        from src.core.edge import Decision
+        from src.core.models import Signal
+
+        signal = Signal(
+            strategy="atomic_arbitrage",
+            token_id="yes_123",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("50"),
+            trade_size=Decimal("1500"),  # Exceeds max of 1000
+            yes_price=Decimal("0.48"),
+            no_price=Decimal("0.50"),
+            confidence=0.95,
+            reason="Large position",
+        )
+
+        balance = Decimal("5000")
+        gas_cost = Decimal("0.1")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Position size exceeds limit" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_gas_too_high(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test rejection due to high gas cost with edge breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("2.0")  # Exceeds max of 1.0
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Gas cost too high" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_profit_below_gas(
+        self, risk_mgr
+    ):
+        """Test rejection when profit doesn't cover gas."""
+        from src.core.edge import Decision
+        from src.core.models import Signal
+
+        signal = Signal(
+            strategy="atomic_arbitrage",
+            token_id="yes_123",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("0.05"),  # Less than gas
+            trade_size=Decimal("10"),
+            yes_price=Decimal("0.48"),
+            no_price=Decimal("0.50"),
+            confidence=0.95,
+            reason="Low profit",
+        )
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.10")  # More than profit
+
+        result = await risk_mgr.validate_signal_with_edge(
+            signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Profit does not cover gas" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_profit_too_low(
+        self, risk_mgr
+    ):
+        """Test rejection when profit is below threshold."""
+        from src.core.edge import Decision
+        from src.core.models import Signal
+
+        signal = Signal(
+            strategy="atomic_arbitrage",
+            token_id="yes_123",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("0.05"),  # 0.5% of trade size
+            trade_size=Decimal("10"),
+            yes_price=Decimal("0.48"),
+            no_price=Decimal("0.50"),
+            confidence=0.95,
+            reason="Low profit",
+        )
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.01")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Profit below threshold" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_slippage_exceeded(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test rejection when slippage is too high."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+        slippage = Decimal("0.2")  # 20% - exceeds 1% max
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost, slippage_est=slippage
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Slippage exceeds limit" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_rejects_negative_values(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test rejection of negative values."""
+        from src.core.edge import Decision
+
+        balance = Decimal("-10")  # Negative!
+        gas_cost = Decimal("0.1")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost
+        )
+
+        assert result.decision == Decision.REJECT
+        assert "Negative values detected" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_calculates_net_edge_correctly(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that net edge is calculated correctly."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+        fees = Decimal("0.05")
+        slippage = Decimal("0.02")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost, fees, slippage
+        )
+
+        # net_edge = gross_edge - fees - slippage - gas_cost - latency_buffer
+        expected_net = (
+            Decimal("0.5")  # gross_edge
+            - Decimal("0.05")  # fees
+            - Decimal("0.02")  # slippage
+            - Decimal("0.1")  # gas_cost
+            - (Decimal("0.5") * Decimal("0.001"))  # latency_buffer (0.1% of gross)
+        )
+
+        assert result.decision == Decision.ACCEPT
+        assert abs(result.net_edge - expected_net) < Decimal("0.0001")
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_includes_fees_in_breakdown(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that fees are included in edge breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+        fees = Decimal("0.15")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost, fees
+        )
+
+        assert result.fees_est == Decimal("0.15")
+        assert result.net_edge < result.gross_edge
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_includes_slippage_in_breakdown(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that slippage is included in edge breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+        slippage = Decimal("0.03")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost, slippage_est=slippage
+        )
+
+        assert result.slippage_est == Decimal("0.03")
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_calculates_latency_buffer(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that latency buffer is calculated correctly."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost
+        )
+
+        # latency_buffer is 0.1% of gross_edge
+        expected_buffer = Decimal("0.5") * Decimal("0.001")
+        assert result.latency_buffer == expected_buffer
+
+    @pytest.mark.asyncio
+    async def test_validate_with_edge_includes_min_threshold(
+        self, risk_mgr, profitable_signal
+    ):
+        """Test that minimum threshold is included in breakdown."""
+        from src.core.edge import Decision
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.1")
+
+        result = await risk_mgr.validate_signal_with_edge(
+            profitable_signal, balance, gas_cost
+        )
+
+        # min_threshold = trade_size * min_profit_threshold
+        expected_threshold = Decimal("10") * Decimal("0.01")
+        assert result.min_threshold == expected_threshold
+
+
+class TestRiskManagerDecimalPrecision:
+    """Test suite for Decimal precision handling."""
+
+    @pytest.fixture
+    def risk_mgr(self):
+        """Create a RiskManager for testing."""
+        return RiskManager(
+            max_position_size=Decimal("1000"),
+            min_profit_threshold=Decimal("0.01"),
+            max_gas_cost=Decimal("1.0"),
+        )
+
+    def test_calculate_gas_cost_with_high_precision(self, risk_mgr):
+        """Test gas cost calculation maintains precision."""
+        gas_price = 50_000_000_001  # Not round number
+        gas_limit = 100_001  # Not round number
+
+        cost = risk_mgr.calculate_gas_cost(gas_price, gas_limit)
+
+        # Should maintain Decimal precision
+        assert isinstance(cost, Decimal)
+        assert cost > 0
+
+    def test_validate_signal_with_decimal_thresholds(self, risk_mgr):
+        """Test validation with exact decimal thresholds."""
+        from src.core.models import Signal
+
+        signal = Signal(
+            strategy="test",
+            token_id="test",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("0.10"),  # Exactly 1%
+            trade_size=Decimal("10"),
+            yes_price=Decimal("0.5"),
+            no_price=Decimal("0.5"),
+            confidence=0.9,
+            reason="test",
+        )
+
+        balance = Decimal("100")
+        gas_cost = Decimal("0.01")
+
+        # Should pass at exactly 1% threshold
+        assert risk_mgr.validate_signal(signal, balance, gas_cost) is True
+
+
+class TestRiskManagerWithArbitrageOpportunity:
+    """Test suite for ArbitrageOpportunity handling."""
+
+    @pytest.fixture
+    def risk_mgr(self):
+        """Create a RiskManager for testing."""
+        return RiskManager()
+
+    def test_estimate_total_cost_for_arbitrage(self, risk_mgr):
+        """Test total cost estimation for arbitrage."""
+        from src.core.models import ArbitrageOpportunity
+
+        arb = ArbitrageOpportunity(
+            strategy="atomic_arbitrage",
+            token_id="yes_123",
+            signal_type="ARBITRAGE",
+            expected_profit=Decimal("0.5"),
+            trade_size=Decimal("10"),
+            yes_price=Decimal("0.48"),
+            no_price=Decimal("0.50"),
+            confidence=0.95,
+            reason="Arbitrage",
+            yes_token_id="yes_123",
+            no_token_id="no_123",
+            yes_cost=Decimal("4.8"),
+            no_cost=Decimal("5.0"),
+            total_cost=Decimal("9.8"),
+            fees=Decimal("0.07"),
+            gas_estimate=Decimal("0.1"),
+            net_profit=Decimal("0.33"),
+        )
+
+        gas_cost = Decimal("0.15")
+        total = risk_mgr.estimate_total_cost(arb, gas_cost)
+
+        # total_cost + gas
+        assert total == Decimal("9.95")
+
+    def test_estimate_total_cost_for_regular_signal(self, risk_mgr):
+        """Test total cost estimation for regular signal."""
+        from src.core.models import Signal
+
+        signal = Signal(
+            strategy="test",
+            token_id="test",
+            signal_type="BUY_YES",
+            expected_profit=Decimal("0.5"),
+            trade_size=Decimal("10"),
+            yes_price=Decimal("0.5"),
+            no_price=Decimal("0.5"),
+            confidence=0.9,
+            reason="test",
+        )
+
+        gas_cost = Decimal("0.15")
+        total = risk_mgr.estimate_total_cost(signal, gas_cost)
+
+        # trade_size + gas
+        assert total == Decimal("10.15")
