@@ -2,13 +2,22 @@
 Polymarket CLOB WebSocket Connector.
 
 Connects to Polymarket's WebSocket API for real-time order book updates.
+
+Resilience features:
+- Message deduplication
+- Sequence number validation
+- Connection statistics
+- Heartbeat timeout detection
 """
 import asyncio
 import json
 import logging
+import time
 from decimal import Decimal
-from typing import Optional, Dict
+from typing import Optional, Dict, Set
 from json import JSONDecodeError
+from collections import OrderedDict
+from datetime import datetime, timedelta
 
 import websockets
 
@@ -18,12 +27,71 @@ from src.core.telemetry import generate_trace_id, log_event, EventType as TeleEv
 logger = logging.getLogger(__name__)
 
 
+# LRU cache for message deduplication
+class MessageCache:
+    """LRU cache for message deduplication."""
+
+    def __init__(self, max_size: int = 10000):
+        """
+        Initialize message cache.
+
+        Args:
+            max_size: Maximum number of messages to cache
+        """
+        self.cache: OrderedDict = OrderedDict()
+        self.max_size = max_size
+        self.hits = 0
+        self.misses = 0
+
+    def add(self, message_id: str) -> bool:
+        """
+        Add message to cache.
+
+        Args:
+            message_id: Message identifier
+
+        Returns:
+            True if message was new (added to cache)
+            False if message was already in cache (duplicate)
+        """
+        if message_id in self.cache:
+            # Move to end (most recently used)
+            self.cache.move_to_end(message_id)
+            self.hits += 1
+            return False  # Duplicate
+        else:
+            self.cache[message_id] = time.time()
+            self.misses += 1
+
+            # Evict oldest if at capacity
+            if len(self.cache) > self.max_size:
+                self.cache.popitem(last=False)
+
+            return True  # New message
+
+    def get_stats(self) -> dict:
+        """Get cache statistics."""
+        return {
+            "size": len(self.cache),
+            "max_size": self.max_size,
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": self.hits / (self.hits + self.misses) if (self.hits + self.misses) > 0 else 0.0
+        }
+
+
 class PolymarketWSClient:
     """
     WebSocket client for Polymarket CLOB.
 
     Maintains local order books for subscribed tokens and handles
     automatic reconnection with exponential backoff.
+
+    Resilience features:
+    - Message deduplication via MessageCache
+    - Sequence number tracking and validation
+    - Connection statistics (connect_count, message_count, duplicate_count)
+    - Heartbeat timeout detection
     """
 
     def __init__(
@@ -32,6 +100,7 @@ class PolymarketWSClient:
         max_reconnect_attempts: int = 5,
         reconnect_delay: float = 1.0,
         use_exponential_backoff: bool = True,
+        heartbeat_timeout: int = 30,
     ):
         """
         Initialize the WebSocket client.
@@ -41,16 +110,30 @@ class PolymarketWSClient:
             max_reconnect_attempts: Maximum reconnection attempts
             reconnect_delay: Initial delay between reconnections (seconds)
             use_exponential_backoff: Whether to use exponential backoff
+            heartbeat_timeout: Seconds without message before considering stale
         """
         self.url = url
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
         self.use_exponential_backoff = use_exponential_backoff
+        self.heartbeat_timeout = heartbeat_timeout
         self.connected: bool = False
         self.orderbooks: Dict[str, OrderBook] = {}
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
         self._listen_task: Optional[asyncio.Task] = None
         self._subscriptions: set = set()
+
+        # Resilience features
+        self._message_cache = MessageCache(max_size=10000)
+        self._sequence_numbers: Dict[str, int] = {}  # token_id -> last_seq
+        self._last_message_time: Optional[datetime] = None
+
+        # Connection statistics
+        self._connect_count = 0
+        self._disconnect_count = 0
+        self._message_count = 0
+        self._duplicate_count = 0
+        self._sequence_gap_count = 0
 
     async def connect(self) -> None:
         """
@@ -67,7 +150,8 @@ class PolymarketWSClient:
                 logger.info(f"正在连接到 {self.url} (尝试 {attempt + 1}/{self.max_reconnect_attempts})")
                 self._ws = await websockets.connect(self.url)
                 self.connected = True
-                logger.info("连接成功")
+                self._connect_count += 1
+                logger.info(f"连接成功 (总连接次数: {self._connect_count})")
 
                 # Resubscribe to previous subscriptions
                 for token_id in self._subscriptions:
@@ -79,7 +163,7 @@ class PolymarketWSClient:
                 logger.warning(f"连接失败: {e}")
 
                 if attempt >= self.max_reconnect_attempts:
-                    raise Exception(f"连接失败，已尝试 {self.max_reconnect_attempts} 次")
+                    raise Exception(f"Failed to connect after {self.max_reconnect_attempts} attempts")
 
                 # Wait before retrying
                 await asyncio.sleep(delay)
@@ -117,7 +201,7 @@ class PolymarketWSClient:
             Exception: If not connected
         """
         if not self.connected:
-            raise Exception("未连接")
+            raise Exception("Not connected")
 
         await self._send_subscription(token_id)
         self._subscriptions.add(token_id)
@@ -175,8 +259,56 @@ class PolymarketWSClient:
         Args:
             message: Parsed JSON message
         """
-        msg_type = message.get("type")
+        # Update last message time (for heartbeat detection)
+        self._last_message_time = datetime.now()
 
+        # Increment message count
+        self._message_count += 1
+
+        # Generate message ID for deduplication
+        token_id = message.get("token_id")
+        msg_type = message.get("type")
+        seq_num = message.get("sequence_number", 0)
+
+        # Skip if no token_id
+        if not token_id:
+            logger.debug("Skipping message without token_id")
+            return
+
+        # Generate message ID
+        message_id = f"{token_id}_{msg_type}_{seq_num}"
+
+        # Check for duplicates
+        if not self._message_cache.add(message_id):
+            self._duplicate_count += 1
+            logger.debug(f"Duplicate message skipped: {message_id}")
+            return
+
+        # Validate sequence number
+        if seq_num > 0:  # Only validate if seq_num is provided
+            last_seq = self._sequence_numbers.get(token_id, 0)
+            if seq_num <= last_seq:
+                # Out of order or duplicate
+                logger.warning(
+                    f"Sequence gap detected: {token_id} "
+                    f"(seq={seq_num}, last={last_seq})"
+                )
+                self._sequence_gap_count += 1
+                return  # Discard out-of-order message
+
+            # Check for gaps
+            if seq_num > last_seq + 1:
+                gap = seq_num - last_seq - 1
+                logger.warning(
+                    f"Sequence gap detected: {token_id} "
+                    f"missing {gap} messages (seq={seq_num}, last={last_seq})"
+                )
+                self._sequence_gap_count += gap
+
+            # Update sequence number
+            self._sequence_numbers[token_id] = seq_num
+
+        # Handle message types
         if msg_type == "snapshot":
             await self._handle_snapshot(message)
         elif msg_type == "update":
@@ -331,6 +463,42 @@ class PolymarketWSClient:
             OrderBook if available, None otherwise
         """
         return self.orderbooks.get(token_id)
+
+    def get_stats(self) -> dict:
+        """
+        Get connection statistics.
+
+        Returns:
+            Dictionary with connection stats
+        """
+        # Calculate uptime if connected
+        uptime_seconds = None
+        if self._last_message_time and self.connected:
+            uptime_seconds = (datetime.now() - self._last_message_time).total_seconds()
+
+        # Check for heartbeat timeout
+        heartbeat_ok = True
+        if self._last_message_time:
+            time_since_last = (datetime.now() - self._last_message_time).total_seconds()
+            heartbeat_ok = time_since_last < self.heartbeat_timeout
+
+        return {
+            "connected": self.connected,
+            "connect_count": self._connect_count,
+            "disconnect_count": self._disconnect_count,
+            "message_count": self._message_count,
+            "duplicate_count": self._duplicate_count,
+            "sequence_gap_count": self._sequence_gap_count,
+            "subscriptions": len(self._subscriptions),
+            "orderbooks": len(self.orderbooks),
+            "cache_stats": self._message_cache.get_stats(),
+            "heartbeat_ok": heartbeat_ok,
+            "time_since_last_message_seconds": (
+                (datetime.now() - self._last_message_time).total_seconds()
+                if self._last_message_time
+                else None
+            ),
+        }
 
     async def __aenter__(self):
         """Async context manager entry."""

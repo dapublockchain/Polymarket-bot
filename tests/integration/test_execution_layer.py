@@ -10,6 +10,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from src.connectors.web3_client import Web3Client
 from src.execution.risk_manager import RiskManager
 from src.execution.tx_sender import TxSender
+from src.execution.nonce_manager import NonceManager
 from src.core.models import Signal
 
 
@@ -53,11 +54,17 @@ class TestExecutionLayerIntegration:
     @pytest.fixture
     def tx_sender(self, web3_client, risk_manager):
         """Create a TxSender."""
+        # Mock the initialize to skip on-chain nonce fetch
+        nonce_manager = NonceManager(
+            web3_client=web3_client,
+            address="0x1234567890123456789012345678901234567890"
+        )
+        # Initialize the nonce manager with a starting nonce
+        nonce_manager._next_nonce = 0
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
-            max_retries=3,
-            retry_delay=0.1,
+            nonce_manager=nonce_manager,
         )
 
     @pytest.fixture
@@ -79,16 +86,17 @@ class TestExecutionLayerIntegration:
     async def test_full_execution_flow(self, tx_sender, profitable_signal, web3_client):
         """Test the complete execution flow from signal to transaction."""
         # Execute signal
-        tx_hash = await tx_sender.execute_signal(profitable_signal)
+        result = await tx_sender.execute_signal(profitable_signal)
 
         # Verify transaction was executed
-        assert tx_hash == "0xabc123"
+        assert result is not None
+        assert result.success is True
+        assert result.tx_hash == "0xabc123"
 
         # Verify all steps were called
         web3_client.get_balance.assert_called_once()
         web3_client.estimate_eip1559_gas.assert_called_once()
         web3_client.estimate_gas.assert_called_once()
-        web3_client.get_nonce.assert_called_once()
         web3_client.sign_transaction.assert_called_once()
         web3_client.send_transaction.assert_called_once()
 
@@ -109,10 +117,12 @@ class TestExecutionLayerIntegration:
         )
 
         # Execute signal
-        tx_hash = await tx_sender.execute_signal(signal)
+        result = await tx_sender.execute_signal(signal)
 
         # Verify transaction was not executed
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
+        assert "Risk manager rejection" in result.error
 
     @pytest.mark.asyncio
     async def test_insufficient_balance(self, tx_sender, web3_client, profitable_signal):
@@ -121,10 +131,12 @@ class TestExecutionLayerIntegration:
         web3_client.get_balance = AsyncMock(return_value=Decimal("5"))
 
         # Execute signal
-        tx_hash = await tx_sender.execute_signal(profitable_signal)
+        result = await tx_sender.execute_signal(profitable_signal)
 
         # Verify transaction was not executed
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
+        assert "Risk manager rejection" in result.error
 
     @pytest.mark.asyncio
     async def test_queue_and_process_multiple_signals(self, tx_sender, web3_client):
@@ -154,7 +166,7 @@ class TestExecutionLayerIntegration:
 
         # Verify all signals were processed
         assert len(results) == 3
-        assert all(r["success"] for r in results)
+        assert all(r.success for r in results)
         assert len(tx_sender.transaction_queue) == 0
 
     @pytest.mark.asyncio
@@ -166,10 +178,12 @@ class TestExecutionLayerIntegration:
         )
 
         # Execute signal
-        tx_hash = await tx_sender.execute_signal(profitable_signal)
+        result = await tx_sender.execute_signal(profitable_signal)
 
         # Verify transaction eventually succeeded
-        assert tx_hash == "0xabc123"
+        assert result is not None
+        assert result.success is True
+        assert result.tx_hash == "0xabc123"
         assert web3_client.send_transaction.call_count == 3
 
     @pytest.mark.asyncio

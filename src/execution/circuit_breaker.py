@@ -23,7 +23,7 @@ Example:
 import asyncio
 import time
 from enum import Enum
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 

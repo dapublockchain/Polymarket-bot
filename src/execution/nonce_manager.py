@@ -107,6 +107,18 @@ class NonceManager:
             logger.debug(f"Allocated nonce: {nonce}")
             return nonce
 
+    async def allocate_nonce(self) -> int:
+        """
+        Allocate next available nonce (alias for get_nonce).
+
+        Returns:
+            Nonce value
+
+        Raises:
+            RuntimeError: If nonce manager not initialized
+        """
+        return await self.get_nonce()
+
     async def mark_confirmed(self, nonce: int):
         """
         Mark nonce as confirmed.

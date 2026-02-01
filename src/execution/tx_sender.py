@@ -7,17 +7,29 @@ This module provides functionality for:
 - Retry logic for failed transactions
 - Transaction status tracking
 - Slippage protection
+- Circuit breaker integration
+- Nonce management
 
 All transactions must pass risk management before execution.
+
+Resilience features:
+- Exponential backoff with jitter for retries
+- Idempotency keys to prevent duplicate transactions
+- Circuit breaker for failure isolation
+- NonceManager for proper Ethereum nonce handling
 """
 import asyncio
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from dataclasses import dataclass
+from datetime import datetime
 
 from src.core.models import Signal
 from src.execution.risk_manager import RiskManager
+from src.execution.retry_policy import RetryPolicy, IdempotencyKey
+from src.execution.nonce_manager import NonceManager
+from src.execution.circuit_breaker import CircuitBreaker, CircuitState
 from src.connectors.web3_client import Web3Client
 from web3.types import TxParams
 from loguru import logger
@@ -38,21 +50,31 @@ class TxResult:
     success: bool
     error: Optional[str] = None
     status: TxStatus = TxStatus.PENDING
+    attempt: int = 0  # Retry attempt number
+    idempotency_key: Optional[str] = None
+    nonce: Optional[int] = None
 
 
 class TxSender:
     """
     Transaction sender for executing validated signals.
 
-    Manages transaction queue, retry logic, and status tracking.
+    Manages transaction queue, retry logic, status tracking, and resilience.
+
+    Resilience features:
+    - NonceManager for proper nonce management with pending tracking
+    - RetryPolicy for exponential backoff with jitter
+    - CircuitBreaker for automatic failure isolation
+    - IdempotencyKey to prevent duplicate transactions
     """
 
     def __init__(
         self,
         web3_client: Web3Client,
         risk_manager: RiskManager,
-        max_retries: int = 3,
-        retry_delay: float = 1.0,
+        nonce_manager: NonceManager,
+        circuit_breaker: Optional[CircuitBreaker] = None,
+        retry_policy: Optional[RetryPolicy] = None,
         slippage_tolerance: Decimal = Decimal("0.02"),  # 2%
     ):
         """
@@ -61,37 +83,84 @@ class TxSender:
         Args:
             web3_client: Web3 client for blockchain interaction
             risk_manager: Risk manager for validation
-            max_retries: Maximum number of retry attempts
-            retry_delay: Delay between retries in seconds
+            nonce_manager: Nonce manager for Ethereum nonce handling
+            circuit_breaker: Optional circuit breaker for failure isolation
+            retry_policy: Optional retry policy with exponential backoff
             slippage_tolerance: Maximum acceptable slippage (0.02 = 2%)
         """
         self.web3_client = web3_client
         self.risk_manager = risk_manager
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
+        self.nonce_manager = nonce_manager
+        self.circuit_breaker = circuit_breaker
+        self.retry_policy = retry_policy or RetryPolicy()
         self.slippage_tolerance = slippage_tolerance
         self.transaction_queue: List[Signal] = []
 
-    async def execute_signal(self, signal: Signal) -> Optional[str]:
+        # Execution statistics
+        self._total_executions = 0
+        self._successful_executions = 0
+        self._failed_executions = 0
+        self._retry_count = 0
+        self._circuit_breaker_trips = 0
+
+        # Idempotency key manager
+        self._idempotency = IdempotencyKey()
+
+    async def execute_signal(self, signal: Signal) -> Optional[TxResult]:
         """
-        Execute a trading signal.
+        Execute a trading signal with resilience features.
 
         Process:
-        1. Validate signal with risk manager
-        2. Check balance
-        3. Estimate gas
-        4. Build transaction
-        5. Sign transaction
-        6. Broadcast transaction (with retries)
+        1. Check circuit breaker state
+        2. Check idempotency (prevent duplicate execution)
+        3. Validate signal with risk manager
+        4. Check balance
+        5. Allocate nonce via NonceManager
+        6. Estimate gas
+        7. Build transaction
+        8. Sign transaction
+        9. Broadcast transaction (with retries via RetryPolicy)
 
         Args:
             signal: Trading signal to execute
 
         Returns:
-            Transaction hash if successful, None otherwise
+            TxResult with execution details
         """
+        self._total_executions += 1
+
+        # Check circuit breaker
+        if self.circuit_breaker and self.circuit_breaker.state != CircuitState.CLOSED:
+            logger.warning(
+                f"Circuit breaker is {self.circuit_breaker.state.value}, "
+                f"rejecting signal: {signal.signal_type}"
+            )
+            return TxResult(
+                signal=signal,
+                tx_hash=None,
+                success=False,
+                error="Circuit breaker open",
+            )
+
+        # Generate idempotency key
+        idem_key = self._idempotency.generate(signal)
+
+        # Check for duplicate execution
+        if self._idempotency.is_seen(idem_key):
+            logger.warning(f"Duplicate signal detected: {idem_key}")
+            # Return existing result if available
+            return TxResult(
+                signal=signal,
+                tx_hash=None,
+                success=False,
+                error="Duplicate signal",
+                idempotency_key=idem_key,
+            )
+
+        self._idempotency.mark_seen(idem_key)
+
         try:
-            # Step 1: Validate signal
+            # Validate signal
             balance = await self.web3_client.get_balance(self.web3_client.address)
 
             # Estimate gas cost
@@ -108,27 +177,66 @@ class TxSender:
             # Validate with risk manager
             if not self.risk_manager.validate_signal(signal, balance, gas_cost):
                 logger.warning(f"Signal rejected by risk manager: {signal.signal_type}")
-                return None
+                return TxResult(
+                    signal=signal,
+                    tx_hash=None,
+                    success=False,
+                    error="Risk manager rejection",
+                    idempotency_key=idem_key,
+                )
 
-            # Step 2: Build transaction
-            transaction = await self._build_transaction(signal, gas_params)
+            # Allocate nonce
+            nonce = await self.nonce_manager.allocate_nonce()
 
-            # Step 3: Sign transaction
+            # Build transaction with allocated nonce
+            transaction = await self._build_transaction(signal, gas_params, nonce)
+
+            # Sign transaction
             signed_tx = await self.web3_client.sign_transaction(transaction)
 
-            # Step 4: Send transaction (with retries)
-            tx_hash = await self._send_transaction_with_retry(signed_tx)
+            # Send transaction with retry policy
+            result = await self._send_transaction_with_retry(
+                signal, signed_tx, idem_key, nonce
+            )
 
-            if tx_hash:
-                logger.info(f"Transaction executed: {tx_hash} for {signal.signal_type}")
+            # Record circuit breaker result
+            if self.circuit_breaker:
+                if result.success:
+                    self.circuit_breaker.record_success()
+                else:
+                    self.circuit_breaker.record_failure()
+
+            # Update nonce tracking
+            if result.success:
+                self.nonce_manager.mark_confirmed(nonce)
             else:
-                logger.error(f"Failed to execute transaction for {signal.signal_type}")
+                # Mark as failed so nonce can be reused
+                self.nonce_manager.mark_failed(nonce)
 
-            return tx_hash
+            # Update statistics
+            if result.success:
+                self._successful_executions += 1
+            else:
+                self._failed_executions += 1
+
+            return result
 
         except Exception as e:
             logger.error(f"Error executing signal: {e}")
-            return None
+
+            # Record failure with circuit breaker
+            if self.circuit_breaker:
+                self.circuit_breaker.record_failure()
+
+            self._failed_executions += 1
+
+            return TxResult(
+                signal=signal,
+                tx_hash=None,
+                success=False,
+                error=str(e),
+                idempotency_key=idem_key,
+            )
 
     async def queue_transaction(self, signal: Signal) -> None:
         """
@@ -140,12 +248,12 @@ class TxSender:
         self.transaction_queue.append(signal)
         logger.info(f"Signal queued: {signal.signal_type} (queue size: {len(self.transaction_queue)})")
 
-    async def process_queue(self) -> List[Dict[str, Any]]:
+    async def process_queue(self) -> List[TxResult]:
         """
         Process all queued transactions.
 
         Returns:
-            List of execution results
+            List of TxResult execution results
         """
         results = []
 
@@ -153,25 +261,18 @@ class TxSender:
             signal = self.transaction_queue.pop(0)
 
             try:
-                tx_hash = await self.execute_signal(signal)
-
-                result = {
-                    "signal": signal,
-                    "tx_hash": tx_hash,
-                    "success": tx_hash is not None,
-                    "error": None if tx_hash else "Execution failed",
-                }
-
-                results.append(result)
+                result = await self.execute_signal(signal)
+                if result:
+                    results.append(result)
 
             except Exception as e:
                 logger.error(f"Error processing queued signal: {e}")
-                results.append({
-                    "signal": signal,
-                    "tx_hash": None,
-                    "success": False,
-                    "error": str(e),
-                })
+                results.append(TxResult(
+                    signal=signal,
+                    tx_hash=None,
+                    success=False,
+                    error=str(e),
+                ))
 
         return results
 
@@ -204,7 +305,8 @@ class TxSender:
     async def _build_transaction(
         self,
         signal: Signal,
-        gas_params: Dict[str, int]
+        gas_params: Dict[str, int],
+        nonce: int,
     ) -> TxParams:
         """
         Build transaction parameters.
@@ -212,14 +314,12 @@ class TxSender:
         Args:
             signal: Trading signal
             gas_params: EIP-1559 gas parameters
+            nonce: Allocated nonce from NonceManager
 
         Returns:
             Transaction parameters
         """
         from src.core.config import Config
-
-        # Get nonce
-        nonce = await self.web3_client.get_nonce()
 
         # Build basic transaction
         # Note: This is a simplified version. In production, you would:
@@ -242,35 +342,75 @@ class TxSender:
 
     async def _send_transaction_with_retry(
         self,
-        signed_tx: bytes
-    ) -> Optional[str]:
+        signal: Signal,
+        signed_tx: bytes,
+        idempotency_key: str,
+        nonce: int,
+    ) -> TxResult:
         """
-        Send transaction with retry logic.
+        Send transaction with retry policy (exponential backoff + jitter).
 
         Args:
+            signal: Trading signal
             signed_tx: Signed transaction bytes
+            idempotency_key: Idempotency key for this transaction
+            nonce: Allocated nonce for this transaction
 
         Returns:
-            Transaction hash if successful, None after max retries
+            TxResult with execution details
         """
         last_error = None
 
-        for attempt in range(self.max_retries):
+        for attempt in range(self.retry_policy.max_attempts):
             try:
                 tx_hash = await self.web3_client.send_transaction(signed_tx)
-                return tx_hash
+
+                return TxResult(
+                    signal=signal,
+                    tx_hash=tx_hash,
+                    success=True,
+                    status=TxStatus.PENDING,
+                    attempt=attempt + 1,
+                    idempotency_key=idempotency_key,
+                    nonce=nonce,
+                )
 
             except Exception as e:
                 last_error = e
+                self._retry_count += 1
+
                 logger.warning(
-                    f"Transaction attempt {attempt + 1}/{self.max_retries} failed: {e}"
+                    f"Transaction attempt {attempt + 1}/{self.retry_policy.max_attempts} "
+                    f"failed: {e}"
                 )
 
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
+                # Check if error is retryable
+                if not self.retry_policy.is_retryable(e):
+                    logger.error(f"Non-retryable error: {e}")
+                    break
 
-        logger.error(f"Transaction failed after {self.max_retries} attempts: {last_error}")
-        return None
+                # Check if we should retry
+                if attempt < self.retry_policy.max_attempts - 1:
+                    delay = self.retry_policy.calculate_delay(attempt)
+                    logger.info(f"Retrying in {delay:.2f} seconds...")
+                    await asyncio.sleep(delay)
+
+        # All retries exhausted
+        error_msg = str(last_error) if last_error else "Max retries exceeded"
+        logger.error(
+            f"Transaction failed after {self.retry_policy.max_attempts} attempts: {error_msg}"
+        )
+
+        return TxResult(
+            signal=signal,
+            tx_hash=None,
+            success=False,
+            error=error_msg,
+            status=TxStatus.FAILED,
+            attempt=self.retry_policy.max_attempts,
+            idempotency_key=idempotency_key,
+            nonce=nonce,
+        )
 
     def _calculate_slippage_limit(
         self,
@@ -293,3 +433,38 @@ class TxSender:
         else:
             # For sells, we're willing to accept down to slippage less
             return expected_price * (Decimal("1") - self.slippage_tolerance)
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get transaction execution statistics.
+
+        Returns:
+            Dictionary with execution stats
+        """
+        success_rate = (
+            self._successful_executions / self._total_executions
+            if self._total_executions > 0
+            else 0.0
+        )
+
+        return {
+            "total_executions": self._total_executions,
+            "successful_executions": self._successful_executions,
+            "failed_executions": self._failed_executions,
+            "success_rate": success_rate,
+            "retry_count": self._retry_count,
+            "circuit_breaker_trips": self._circuit_breaker_trips,
+            "queue_size": len(self.transaction_queue),
+            "circuit_breaker_state": (
+                self.circuit_breaker.state.value
+                if self.circuit_breaker
+                else "not_configured"
+            ),
+            "circuit_breaker_stats": (
+                self.circuit_breaker.get_stats()
+                if self.circuit_breaker
+                else None
+            ),
+            "nonce_manager_stats": self.nonce_manager.get_stats(),
+            "retry_policy_max_attempts": self.retry_policy.max_attempts,
+        }

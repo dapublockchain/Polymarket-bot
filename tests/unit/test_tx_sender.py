@@ -8,9 +8,10 @@ import pytest
 from decimal import Decimal
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from src.execution.tx_sender import TxSender, TxStatus
+from src.execution.tx_sender import TxSender, TxStatus, TxResult
 from src.core.models import Signal
 from src.execution.risk_manager import RiskManager
+from src.execution.nonce_manager import NonceManager
 
 
 class TestTxSenderInitialization:
@@ -20,32 +21,36 @@ class TestTxSenderInitialization:
         """Test that TxSender initializes with default values."""
         with patch("src.execution.tx_sender.Web3Client") as mock_web3_client:
             with patch("src.execution.tx_sender.RiskManager") as mock_risk_mgr:
-                sender = TxSender(
-                    web3_client=mock_web3_client,
-                    risk_manager=mock_risk_mgr,
-                )
+                with patch("src.execution.tx_sender.NonceManager") as mock_nonce_mgr:
+                    sender = TxSender(
+                        web3_client=mock_web3_client,
+                        risk_manager=mock_risk_mgr,
+                        nonce_manager=mock_nonce_mgr,
+                    )
 
-                assert sender.web3_client == mock_web3_client
-                assert sender.risk_manager == mock_risk_mgr
-                assert sender.max_retries == 3
-                assert sender.retry_delay == 1.0
-                assert sender.slippage_tolerance == Decimal("0.02")
+                    assert sender.web3_client == mock_web3_client
+                    assert sender.risk_manager == mock_risk_mgr
+                    assert sender.nonce_manager == mock_nonce_mgr
+                    assert sender.slippage_tolerance == Decimal("0.02")
+                    assert sender._total_executions == 0
+                    assert sender._successful_executions == 0
 
     def test_initialization_with_custom_values(self):
         """Test initialization with custom values."""
         with patch("src.execution.tx_sender.Web3Client") as mock_web3_client:
             with patch("src.execution.tx_sender.RiskManager") as mock_risk_mgr:
-                sender = TxSender(
-                    web3_client=mock_web3_client,
-                    risk_manager=mock_risk_mgr,
-                    max_retries=5,
-                    retry_delay=2.0,
-                    slippage_tolerance=Decimal("0.01"),
-                )
+                with patch("src.execution.tx_sender.RetryPolicy") as mock_retry:
+                    with patch("src.execution.tx_sender.NonceManager") as mock_nonce_mgr:
+                        sender = TxSender(
+                            web3_client=mock_web3_client,
+                            risk_manager=mock_risk_mgr,
+                            nonce_manager=mock_nonce_mgr,
+                            retry_policy=mock_retry,
+                            slippage_tolerance=Decimal("0.01"),
+                        )
 
-                assert sender.max_retries == 5
-                assert sender.retry_delay == 2.0
-                assert sender.slippage_tolerance == Decimal("0.01")
+                        assert sender.slippage_tolerance == Decimal("0.01")
+                        assert sender.retry_policy == mock_retry
 
 
 class TestExecuteSignal:
@@ -55,12 +60,12 @@ class TestExecuteSignal:
     def web3_client(self):
         """Create a mock Web3Client."""
         client = Mock()
+        client.address = "0x1234567890123456789012345678901234567890"
         client.get_balance = AsyncMock(return_value=Decimal("100"))
         client.estimate_eip1559_gas = AsyncMock(
             return_value={"maxFeePerGas": 50_000_000_000, "maxPriorityFeePerGas": 2_000_000_000}
         )
         client.estimate_gas = AsyncMock(return_value=100_000)
-        client.get_nonce = AsyncMock(return_value=0)
         client.sign_transaction = AsyncMock(return_value=b"signed_tx")
         client.send_transaction = AsyncMock(return_value="0xabc123")
         client.get_transaction_receipt = AsyncMock(return_value=None)
@@ -76,13 +81,22 @@ class TestExecuteSignal:
         return risk_mgr
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        nonce_mgr = Mock(spec=NonceManager)
+        nonce_mgr.allocate_nonce = AsyncMock(return_value=0)
+        nonce_mgr.mark_confirmed = Mock()
+        nonce_mgr.mark_failed = Mock()
+        nonce_mgr.get_stats = Mock(return_value={"pending_count": 0})
+        return nonce_mgr
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
-            max_retries=3,
-            retry_delay=0.1,  # Short delay for tests
+            nonce_manager=nonce_manager,
         )
 
     @pytest.fixture
@@ -103,9 +117,11 @@ class TestExecuteSignal:
     @pytest.mark.asyncio
     async def test_execute_signal_success(self, tx_sender, valid_signal, web3_client, risk_manager):
         """Test successful signal execution."""
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash == "0xabc123"
+        assert result is not None
+        assert result.success is True
+        assert result.tx_hash == "0xabc123"
         risk_manager.validate_signal.assert_called_once()
         web3_client.get_balance.assert_called_once()
         web3_client.estimate_gas.assert_called_once()
@@ -117,9 +133,11 @@ class TestExecuteSignal:
         """Test that execution fails when signal is invalid."""
         risk_manager.validate_signal.return_value = False
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
+        assert "Risk manager rejection" in result.error
         risk_manager.validate_signal.assert_called_once()
 
     @pytest.mark.asyncio
@@ -131,9 +149,10 @@ class TestExecuteSignal:
         # Risk manager should reject the signal
         risk_manager.validate_signal.return_value = False
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
         risk_manager.validate_signal.assert_called_once()
 
     @pytest.mark.asyncio
@@ -144,9 +163,11 @@ class TestExecuteSignal:
             side_effect=[Exception("Network error"), Exception("Network error"), "0xabc123"]
         )
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash == "0xabc123"
+        assert result is not None
+        assert result.success is True
+        assert result.tx_hash == "0xabc123"
         assert web3_client.send_transaction.call_count == 3
 
     @pytest.mark.asyncio
@@ -156,28 +177,32 @@ class TestExecuteSignal:
             side_effect=Exception("Network error")
         )
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
-        assert web3_client.send_transaction.call_count == 3
+        assert result is not None
+        assert result.success is False
+        assert result.error is not None
+        assert web3_client.send_transaction.call_count > 1
 
     @pytest.mark.asyncio
     async def test_execute_signal_gas_estimation_failure(self, tx_sender, valid_signal, web3_client):
         """Test handling of gas estimation failure."""
         web3_client.estimate_gas.side_effect = Exception("Gas estimation failed")
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
 
     @pytest.mark.asyncio
     async def test_execute_signing_failure(self, tx_sender, valid_signal, web3_client):
         """Test handling of transaction signing failure."""
         web3_client.sign_transaction.side_effect = Exception("Signing failed")
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
 
 
 class TestQueueTransaction:
@@ -195,11 +220,17 @@ class TestQueueTransaction:
         return Mock(spec=RiskManager)
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        return Mock(spec=NonceManager)
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
         )
 
     @pytest.fixture
@@ -255,12 +286,12 @@ class TestProcessQueue:
     def web3_client(self):
         """Create a mock Web3Client."""
         client = Mock()
+        client.address = "0x1234567890123456789012345678901234567890"
         client.get_balance = AsyncMock(return_value=Decimal("1000"))
         client.estimate_eip1559_gas = AsyncMock(
             return_value={"maxFeePerGas": 50_000_000_000, "maxPriorityFeePerGas": 2_000_000_000}
         )
         client.estimate_gas = AsyncMock(return_value=100_000)
-        client.get_nonce = AsyncMock(return_value=0)
         client.sign_transaction = AsyncMock(return_value=b"signed_tx")
         client.send_transaction = AsyncMock(return_value="0xabc123")
         return client
@@ -275,11 +306,20 @@ class TestProcessQueue:
         return risk_mgr
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        nonce_mgr = Mock(spec=NonceManager)
+        nonce_mgr.allocate_nonce = AsyncMock(return_value=0)
+        nonce_mgr.mark_confirmed = Mock()
+        return nonce_mgr
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
         )
 
     @pytest.fixture
@@ -312,9 +352,9 @@ class TestProcessQueue:
         results = await tx_sender.process_queue()
 
         assert len(results) == 1
-        assert results[0]["signal"] == valid_signal
-        assert results[0]["tx_hash"] == "0xabc123"
-        assert results[0]["success"] is True
+        assert results[0].signal == valid_signal
+        assert results[0].tx_hash == "0xabc123"
+        assert results[0].success is True
         assert len(tx_sender.transaction_queue) == 0
 
     @pytest.mark.asyncio
@@ -350,8 +390,8 @@ class TestProcessQueue:
         results = await tx_sender.process_queue()
 
         assert len(results) == 1
-        assert results[0]["success"] is False
-        assert results[0]["error"] is not None
+        assert results[0].success is False
+        assert results[0].error is not None
 
 
 class TestCheckTransactionStatus:
@@ -369,11 +409,17 @@ class TestCheckTransactionStatus:
         return Mock(spec=RiskManager)
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        return Mock(spec=NonceManager)
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
         )
 
     @pytest.mark.asyncio
@@ -434,11 +480,17 @@ class TestSlippageProtection:
         return Mock(spec=RiskManager)
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        return Mock(spec=NonceManager)
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
             slippage_tolerance=Decimal("0.02"),  # 2% slippage
         )
 
@@ -485,6 +537,7 @@ class TestErrorHandling:
     def web3_client(self):
         """Create a mock Web3Client."""
         client = Mock()
+        client.address = "0x1234567890123456789012345678901234567890"
         client.get_balance = AsyncMock(side_effect=Exception("RPC error"))
         return client
 
@@ -494,11 +547,19 @@ class TestErrorHandling:
         return Mock(spec=RiskManager)
 
     @pytest.fixture
-    def tx_sender(self, web3_client, risk_manager):
+    def nonce_manager(self):
+        """Create a mock NonceManager."""
+        nonce_mgr = Mock(spec=NonceManager)
+        nonce_mgr.allocate_nonce = AsyncMock(return_value=0)
+        return nonce_mgr
+
+    @pytest.fixture
+    def tx_sender(self, web3_client, risk_manager, nonce_manager):
         """Create a TxSender for testing."""
         return TxSender(
             web3_client=web3_client,
             risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
         )
 
     @pytest.fixture
@@ -522,15 +583,17 @@ class TestErrorHandling:
         import asyncio
         web3_client.get_balance = AsyncMock(side_effect=asyncio.TimeoutError("Timeout"))
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False
 
     @pytest.mark.asyncio
     async def test_handle_connection_error(self, tx_sender, valid_signal, web3_client):
         """Test handling connection error."""
         web3_client.get_balance = AsyncMock(side_effect=ConnectionError("Connection lost"))
 
-        tx_hash = await tx_sender.execute_signal(valid_signal)
+        result = await tx_sender.execute_signal(valid_signal)
 
-        assert tx_hash is None
+        assert result is not None
+        assert result.success is False

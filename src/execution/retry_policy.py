@@ -57,6 +57,16 @@ class RetryPolicy:
         """
         self.config = config or RetryPolicyConfig()
 
+    @property
+    def max_attempts(self) -> int:
+        """
+        Get maximum number of attempts (initial + retries).
+
+        Returns:
+            Maximum attempts including the first try
+        """
+        return self.config.max_retries + 1
+
     def is_retryable(self, error: Exception) -> bool:
         """
         Check if error is retryable.
@@ -183,6 +193,48 @@ class IdempotencyKey:
         self._keys: dict[str, float] = {}  # key -> expiry timestamp
         self._ttl_seconds = ttl_seconds
         self._lock = asyncio.Lock()
+
+    def generate(self, signal) -> str:
+        """
+        Generate an idempotency key from a signal.
+
+        Args:
+            signal: Trading signal
+
+        Returns:
+            Unique idempotency key
+        """
+        # Create a unique key from signal properties
+        key_parts = [
+            signal.strategy,
+            signal.token_id,
+            signal.signal_type,
+            str(signal.expected_profit),
+            str(int(asyncio.get_event_loop().time())),  # Add timestamp
+        ]
+        return "_".join(key_parts)
+
+    def is_seen(self, key: str) -> bool:
+        """
+        Check if key has been seen (non-async version for immediate check).
+
+        Args:
+            key: Idempotency key
+
+        Returns:
+            True if key exists, False otherwise
+        """
+        return key in self._keys
+
+    def mark_seen(self, key: str):
+        """
+        Mark a key as seen (non-async version for immediate marking).
+
+        Args:
+            key: Idempotency key to mark
+        """
+        now = asyncio.get_event_loop().time()
+        self._keys[key] = now + self._ttl_seconds
 
     async def check_and_set(self, key: str) -> bool:
         """
