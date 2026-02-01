@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyArb-X Dashboard v0.4.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .metric-card {
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .log-entry {
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 3px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: rgba(148, 163, 184, 0.5);
+        }
+
+        .strategy-badge {
+            font-size: 0.65rem;
+            padding: 2px 8px;
+        }
+    </style>
+</head>
+<body class="text-slate-200">
+    <!-- Header -->
+    <header class="glass-card sticky top-0 z-50 border-b border-slate-700/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                            PolyArb-X Dashboard
+                        </h1>
+                        <p class="text-xs text-slate-400">v0.4.0 - Professional Trading Bot</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <span class="pulse-dot w-2 h-2 bg-green-400 rounded-full"></span>
+                        <span class="text-sm text-green-400 font-medium" id="status-text">在线</span>
+                    </div>
+                    <div class="text-sm text-slate-400">
+                        <span id="uptime">加载中...</span>
+                    </div>
+                    <button onclick="refreshData()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors">
+                        刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Account Balance (NEW) -->
+            <div class="glass-card metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-slate-400 text-sm font-medium">账户余额</h3>
+                    <div class="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="account-balance">$0.00</div>
+                <div class="text-xs text-slate-400">可用余额</div>
+            </div>
+
+            <!-- Position Value (NEW) -->
+            <div class="glass-card metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-slate-400 text-sm font-medium">持仓价值</h3>
+                    <div class="w-10 h-10 bg-cyan-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="position-value">$0.00</div>
+                <div class="text-xs text-slate-400">持仓市值</div>
+            </div>
+
+            <!-- Total Profit (UPDATED) -->
+            <div class="glass-card metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-slate-400 text-sm font-medium">总利润</h3>
+                    <div class="w-10 h-10 bg-yellow-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="total-profit">$0.00</div>
+                <div class="text-xs text-slate-400">累计收益</div>
+            </div>
+
+            <!-- Total Assets (NEW) -->
+            <div class="glass-card metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-slate-400 text-sm font-medium">总资产</h3>
+                    <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="total-assets">$0.00</div>
+                <div class="text-xs text-slate-400">账户总值</div>
+            </div>
+        </div>
+
+        <!-- Secondary Metrics Row -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <!-- Total Opportunities -->
+            <div class="glass-card metric-card rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-slate-400 text-xs mb-1">检测机会</div>
+                        <div class="text-2xl font-bold text-white" id="total-opportunities">0</div>
+                    </div>
+                    <div class="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Trades -->
+            <div class="glass-card metric-card rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-slate-400 text-xs mb-1">执行交易</div>
+                        <div class="text-2xl font-bold text-white" id="total-trades">0</div>
+                    </div>
+                    <div class="w-8 h-8 bg-green-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Avg Profit per Trade -->
+            <div class="glass-card metric-card rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-slate-400 text-xs mb-1">平均利润</div>
+                        <div class="text-2xl font-bold text-white" id="avg-profit">$0.00</div>
+                    </div>
+                    <div class="w-8 h-8 bg-yellow-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Success Rate -->
+            <div class="glass-card metric-card rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-slate-400 text-xs mb-1">成功率</div>
+                        <div class="text-2xl font-bold text-white" id="success-rate">100%</div>
+                    </div>
+                    <div class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Strategy Status -->
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-white">策略状态</h2>
+                        <span class="text-xs text-slate-400">点击切换</span>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4" id="strategies-grid">
+                        <!-- Strategies will be loaded dynamically -->
+                    </div>
+                </div>
+
+                <!-- Chart Section -->
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-white">性能指标</h2>
+                        <select id="chart-period" class="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm">
+                            <option value="1h">最近 1 小时</option>
+                            <option value="6h">最近 6 小时</option>
+                            <option value="24h" selected>最近 24 小时</option>
+                        </select>
+                    </div>
+                    <div class="h-80">
+                        <canvas id="performance-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Recent Trades -->
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-white">最近交易</h2>
+                        <span class="text-xs text-slate-400">最新 50 条</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="text-left text-xs text-slate-400 uppercase">
+                                    <th class="pb-3 font-medium">时间</th>
+                                    <th class="pb-3 font-medium">策略</th>
+                                    <th class="pb-3 font-medium">市场</th>
+                                    <th class="pb-3 font-medium">利润</th>
+                                    <th class="pb-3 font-medium">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-table" class="text-sm">
+                                <tr>
+                                    <td colspan="5" class="py-8 text-center text-slate-400">暂无交易记录</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="space-y-6">
+                <!-- System Status -->
+                <div class="glass-card rounded-xl p-6">
+                    <h2 class="text-lg font-semibold text-white mb-6">系统状态</h2>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">运行模式</span>
+                            <span class="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium" id="run-mode">Dry-Run</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">订阅市场</span>
+                            <span class="text-sm font-medium" id="subscribed-markets">2</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">订单本更新</span>
+                            <span class="text-sm font-medium" id="orderbook-updates">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">熔断器触发</span>
+                            <span class="text-sm font-medium text-yellow-400" id="circuit-trips">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">异常检测</span>
+                            <span class="text-sm font-medium text-red-400" id="anomaly-detections">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Signals -->
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-white">最新信号</h2>
+                        <span class="text-xs text-slate-400">实时</span>
+                    </div>
+                    <div class="space-y-3 max-h-96 overflow-y-auto scrollbar-thin" id="signals-list">
+                        <div class="text-center text-slate-400 text-sm py-8">
+                            等待信号...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Logs -->
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-white">系统日志</h2>
+                        <span class="text-xs text-slate-400">实时</span>
+                    </div>
+                    <div class="bg-slate-900/50 rounded-lg p-4 max-h-64 overflow-y-auto scrollbar-thin font-mono text-xs" id="logs-container">
+                        <div class="text-slate-400">加载日志中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass-card border-t border-slate-700/50 mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between text-sm text-slate-400">
+                <div>© 2026 PolyArb-X v0.4.0 - Professional Trading Bot</div>
+                <div class="flex items-center space-x-4">
+                    <span>测试覆盖: 81.93%</span>
+                    <span>|</span>
+                    <span>448 tests passing</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Configuration
+        const API_BASE = '';
+        const REFRESH_INTERVAL = 2000; // 2 seconds
+
+        // Strategy configuration (will be loaded from API)
+        let strategies = [];
+
+        // Initialize dashboard
+        let performanceChart = null;
+        let startTime = Date.now();
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeDashboard();
+            initializeChart();
+            loadStrategies();
+            startAutoRefresh();
+        });
+
+        function initializeDashboard() {
+            console.log('🚀 Initializing PolyArb-X Dashboard');
+            updateUptime();
+            setInterval(updateUptime, 1000);
+        }
+
+        function updateUptime() {
+            const elapsed = Date.now() - startTime;
+            const hours = Math.floor(elapsed / 3600000);
+            const minutes = Math.floor((elapsed % 3600000) / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            document.getElementById('uptime').textContent = `${hours}h ${minutes}m ${seconds}s`;
+        }
+
+        function initializeChart() {
+            const ctx = document.getElementById('performance-chart').getContext('2d');
+
+            performanceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '利润 (USDC)',
+                            data: [],
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                        },
+                        {
+                            label: '机会数',
+                            data: [],
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#cbd5e1' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // NEW: Fetch strategies from API
+        async function loadStrategies() {
+            try {
+                const response = await fetch(`${API_BASE}/api/strategies`);
+                const data = await response.json();
+                strategies = data.strategies || [];
+                renderStrategies();
+            } catch (error) {
+                console.error('Error loading strategies:', error);
+                // Fallback to default strategies
+                strategies = [
+                    { id: 'atomic_arbitrage', name: '原子套利', icon: '⚡', enabled: true },
+                    { id: 'negrisk', name: 'NegRisk', icon: '📊', enabled: true },
+                    { id: 'market_grouper', name: '组合套利', icon: '🔄', enabled: true },
+                    { id: 'settlement_lag', name: '结算滞后', icon: '⏰', enabled: false },
+                    { id: 'market_making', name: '盘口做市', icon: '💱', enabled: false },
+                    { id: 'tail_risk', name: '尾部风险', icon: '🛡️', enabled: false },
+                ];
+                renderStrategies();
+            }
+        }
+
+        // NEW: Render interactive strategy cards
+        function renderStrategies() {
+            const grid = document.getElementById('strategies-grid');
+            grid.innerHTML = strategies.map(strategy => `
+                <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 cursor-pointer hover:border-slate-600 transition-all ${strategy.enabled ? 'ring-2 ring-green-500/30' : ''}"
+                     onclick="toggleStrategy('${strategy.id}')"
+                     id="strategy-card-${strategy.id}">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-2xl">${strategy.icon}</span>
+                        <span class="strategy-badge rounded-full ${strategy.enabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}"
+                              id="strategy-${strategy.id}-status">
+                            ${strategy.enabled ? '启用' : '禁用'}
+                        </span>
+                    </div>
+                    <div class="text-sm font-medium text-white mb-1">${strategy.name}</div>
+                    <div class="text-xs text-slate-400">点击${strategy.enabled ? '禁用' : '启用'}</div>
+                </div>
+            `).join('');
+        }
+
+        // NEW: Toggle strategy on/off
+        async function toggleStrategy(strategyId) {
+            const strategy = strategies.find(s => s.id === strategyId);
+            if (!strategy) return;
+
+            // Show loading state
+            const card = document.getElementById(`strategy-card-${strategyId}`);
+            card.classList.add('opacity-50', 'pointer-events-none');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/strategies/${strategyId}/toggle`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Update local state
+                    strategy.enabled = data.enabled;
+
+                    // Show notification
+                    showNotification(data.message, data.success ? 'success' : 'error');
+
+                    // Re-render strategies
+                    renderStrategies();
+                } else {
+                    showNotification('切换策略失败', 'error');
+                }
+            } catch (error) {
+                console.error('Error toggling strategy:', error);
+                showNotification('切换策略失败: ' + error.message, 'error');
+            } finally {
+                // Remove loading state
+                card.classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        // NEW: Show notification toast
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-20 right-4 px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in ${
+                type === 'success' ? 'bg-green-500' :
+                type === 'error' ? 'bg-red-500' :
+                'bg-blue-500'
+            } text-white font-medium`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // NEW: Fetch account balance
+        async function fetchBalance() {
+            try {
+                const response = await fetch(`${API_BASE}/api/balance`);
+                const data = await response.json();
+
+                // Update balance metrics
+                document.getElementById('account-balance').textContent = `$${data.usdc_balance.toFixed(2)}`;
+                document.getElementById('position-value').textContent = `$${data.position_value.toFixed(2)}`;
+                document.getElementById('total-assets').textContent = `$${data.total_assets.toFixed(2)}`;
+
+                return data;
+            } catch (error) {
+                console.error('Error fetching balance:', error);
+            }
+        }
+
+        // NEW: Fetch profit data
+        async function fetchProfit() {
+            try {
+                const response = await fetch(`${API_BASE}/api/profit`);
+                const data = await response.json();
+
+                // Update profit metrics
+                document.getElementById('total-profit').textContent = `$${data.total_profit.toFixed(2)}`;
+                document.getElementById('avg-profit').textContent = `$${data.avg_profit_per_trade.toFixed(2)}`;
+
+                // Update performance chart
+                if (data.profit_history && data.profit_history.length > 0) {
+                    updatePerformanceChart(data.profit_history);
+                }
+
+                return data;
+            } catch (error) {
+                console.error('Error fetching profit:', error);
+            }
+        }
+
+        // NEW: Update performance chart with profit history
+        function updatePerformanceChart(profitHistory) {
+            if (!performanceChart) return;
+
+            const labels = profitHistory.map(p => p.timestamp);
+            const profits = profitHistory.map(p => p.profit);
+
+            performanceChart.data.labels = labels;
+            performanceChart.data.datasets[0].data = profits;
+            performanceChart.update('none'); // 'none' for smooth animation
+        }
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
+
+                // Update metrics
+                document.getElementById('subscribed-markets').textContent = data.subscribed_markets || 0;
+                document.getElementById('total-opportunities').textContent = data.opportunities_detected || 0;
+                document.getElementById('total-trades').textContent = data.trades_executed || 0;
+                document.getElementById('status-text').textContent = data.status;
+                document.getElementById('run-mode').textContent = data.mode || 'Dry-Run';
+
+                return data;
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        async function fetchOpportunities() {
+            try {
+                const response = await fetch(`${API_BASE}/api/opportunities`);
+                const data = await response.json();
+
+                // Update trades table
+                updateTradesTable(data.opportunities || []);
+
+                return data;
+            } catch (error) {
+                console.error('Error fetching opportunities:', error);
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch(`${API_BASE}/api/logs`);
+                const data = await response.json();
+
+                updateLogs(data.logs || []);
+
+                return data;
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+            }
+        }
+
+        function updateTradesTable(trades) {
+            const tbody = document.getElementById('trades-table');
+
+            if (trades.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-400">暂无交易记录</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = trades.slice(0, 50).map(trade => `
+                <tr class="border-t border-slate-700/50 hover:bg-slate-800/30">
+                    <td class="py-3 text-slate-300">${trade.timestamp}</td>
+                    <td class="py-3">
+                        <span class="strategy-badge bg-blue-500/20 text-blue-400 rounded-full">原子套利</span>
+                    </td>
+                    <td class="py-3 text-slate-300">${trade.pair}</td>
+                    <td class="py-3 ${trade.profit >= 0 ? 'text-green-400' : 'text-red-400'}">
+                        $${trade.profit ? trade.profit.toFixed(4) : '0.00'}
+                    </td>
+                    <td class="py-3">
+                        <span class="strategy-badge ${trade.status === '已执行' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'} rounded-full">
+                            ${trade.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateLogs(logs) {
+            const container = document.getElementById('logs-container');
+
+            if (logs.length === 0) {
+                container.innerHTML = '<div class="text-slate-400">暂无日志</div>';
+                return;
+            }
+
+            container.innerHTML = logs.map(log => {
+                const timestamp = log.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)?.[0] || '';
+                const level = log.match(/\|(INFO|ERROR|WARN|DEBUG)\|/)?.[1] || 'INFO';
+                const message = log.split('|').pop()?.trim() || log;
+
+                let levelColor = 'text-slate-400';
+                if (level === 'ERROR') levelColor = 'text-red-400';
+                if (level === 'WARN') levelColor = 'text-yellow-400';
+                if (level === 'INFO') levelColor = 'text-blue-400';
+
+                return `
+                    <div class="log-entry mb-1">
+                        <span class="text-slate-500">[${timestamp}]</span>
+                        <span class="${levelColor}">[${level}]</span>
+                        <span class="text-slate-300">${message}</span>
+                    </div>
+                `;
+            }).join('');
+
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateSignals(signals) {
+            const container = document.getElementById('signals-list');
+
+            if (!signals || signals.length === 0) {
+                container.innerHTML = '<div class="text-center text-slate-400 text-sm py-8">等待信号...</div>';
+                return;
+            }
+
+            container.innerHTML = signals.slice(0, 10).map(signal => `
+                <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs text-slate-400">${signal.timestamp || '刚刚'}</span>
+                        <span class="strategy-badge bg-green-500/20 text-green-400 rounded-full">${signal.strategy || 'Unknown'}</span>
+                    </div>
+                    <div class="text-sm text-white mb-1">${signal.pair || signal.market_id || 'Unknown Market'}</div>
+                    <div class="text-xs ${signal.profit >= 0 ? 'text-green-400' : 'text-red-400'}">
+                        预期利润: $${signal.profit ? signal.profit.toFixed(4) : '0.00'}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function refreshData() {
+            console.log('🔄 Refreshing data...');
+            await Promise.all([
+                fetchStatus(),
+                fetchOpportunities(),
+                fetchLogs(),
+                fetchBalance(),
+                fetchProfit(),
+            ]);
+        }
+
+        function startAutoRefresh() {
+            // Initial load
+            refreshData();
+
+            // Auto refresh
+            setInterval(refreshData, REFRESH_INTERVAL);
+        }
+    </script>
+</body>
+</html>

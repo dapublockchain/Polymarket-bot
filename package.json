@@ -1,0 +1,17 @@
+{
+  "name": "polyarb-x-e2e-tests",
+  "version": "0.4.0",
+  "description": "E2E tests for PolyArb-X Dashboard using Playwright",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:report": "playwright show-report playwright-report",
+    "test:e2e:install": "playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}

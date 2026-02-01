@@ -270,6 +270,10 @@ class PolymarketWSClient:
         msg_type = message.get("type")
         seq_num = message.get("sequence_number", 0)
 
+        # Log every 100 messages
+        if self._message_count % 100 == 0:
+            logger.info(f"📡 WebSocket: 收到 {self._message_count} 条消息 (重复: {self._duplicate_count}, 缺失: {self._sequence_gap_count})")
+
         # Skip if no token_id
         if not token_id:
             logger.debug("Skipping message without token_id")
@@ -380,7 +384,21 @@ class PolymarketWSClient:
             event_received_ms=event_received_ms,
         )
 
-        logger.info(f"已更新订单本: {token_id} (快照 - {len(bids)} 买单, {len(asks)} 卖单)")
+        # Log order book snapshot with details
+        best_bid = bids[0].price if bids else None
+        best_ask = asks[0].price if asks else None
+        spread = ((best_ask - best_bid) / best_bid * 100) if (best_bid and best_ask) else None
+
+        bid_str = f"${best_bid:.4f}" if best_bid else "N/A"
+        ask_str = f"${best_ask:.4f}" if best_ask else "N/A"
+        spread_str = f"{spread:.2f}%" if spread else "N/A"
+
+        logger.debug(
+            f"📊 订单本快照: {token_id[:20]}... | "
+            f"买单: {len(bids)}, 卖单: {len(asks)} | "
+            f"最优买: {bid_str}, 最优卖: {ask_str} | "
+            f"价差: {spread_str}"
+        )
 
     async def _handle_update(self, message: dict) -> None:
         """
