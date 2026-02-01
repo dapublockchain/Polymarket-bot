@@ -35,6 +35,8 @@ class EventType(str, Enum):
     SIGNAL = "signal"
     ORDER_REQUEST = "order_request"
     ORDER_RESULT = "order_result"
+    FILL = "fill"  # NEW
+    PNL_UPDATE = "pnl_update"  # NEW
 
 
 class EventRecorder:
@@ -42,17 +44,20 @@ class EventRecorder:
     Recorder for trading events.
 
     Buffers events in memory and flushes to disk periodically.
+    Can also flush immediately after each event write for real-time visibility.
     """
 
-    def __init__(self, buffer_size: int = 100):
+    def __init__(self, buffer_size: int = 100, immediate_flush: bool = False):
         """
         Initialize event recorder.
 
         Args:
             buffer_size: Maximum buffer size before auto-flush
+            immediate_flush: If True, flush immediately after each event write
         """
         self.buffer: List[Dict[str, Any]] = []
         self.buffer_size = buffer_size
+        self.immediate_flush = immediate_flush
         self._lock = asyncio.Lock()
 
     async def record_orderbook_snapshot(
@@ -191,6 +196,31 @@ class EventRecorder:
 
         await self._add_to_buffer(event)
 
+    async def record_event(
+        self,
+        event_type: str,
+        data: Dict[str, Any],
+        timestamp: Optional[datetime] = None
+    ) -> None:
+        """
+        Record a generic event.
+
+        This method allows recording arbitrary event types,
+        making it easy to add new event types without modifying the recorder.
+
+        Args:
+            event_type: Event type (string, e.g., "fill", "pnl_update")
+            data: Event data (will be JSON serialized)
+            timestamp: Event timestamp (defaults to now)
+        """
+        event = {
+            "event_type": event_type,
+            "timestamp": (timestamp or datetime.now()).isoformat(),
+            "data": data
+        }
+
+        await self._add_to_buffer(event)
+
     async def _add_to_buffer(self, event: Dict[str, Any]) -> None:
         """
         Add event to buffer and auto-flush if needed.
@@ -202,7 +232,7 @@ class EventRecorder:
         async with self._lock:
             self.buffer.append(event)
             # Check if we need to flush (but don't flush while holding lock)
-            if len(self.buffer) >= self.buffer_size:
+            if len(self.buffer) >= self.buffer_size or self.immediate_flush:
                 should_flush = True
 
         # Flush outside the lock to avoid deadlock

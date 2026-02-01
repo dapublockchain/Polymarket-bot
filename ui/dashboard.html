@@ -402,6 +402,98 @@
             background: var(--accent-purple);
         }
 
+        /* Strategy Toggles */
+        .strategy-toggles {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            padding: 10px 0;
+        }
+
+        .strategy-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .strategy-toggle:hover {
+            border-color: var(--accent-blue);
+            box-shadow: var(--glow-blue);
+        }
+
+        .strategy-info {
+            flex: 1;
+        }
+
+        .strategy-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .strategy-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border-color);
+            transition: 0.4s;
+            border-radius: 34px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .toggle-slider {
+            background-color: var(--accent-green);
+            box-shadow: var(--glow-green);
+        }
+
+        input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
+
+        input:disabled + .toggle-slider {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         /* Responsive */
         @media (max-width: 1200px) {
             .dashboard-grid {
@@ -455,7 +547,7 @@
                 <div class="logo-icon">PX</div>
                 <div class="logo-text">
                     <h1>PolyArb-X</h1>
-                    <p>专业预测市场套利系统 v0.3.0</p>
+                    <p>专业预测市场套利系统 v4.3.0 - 完整模拟 + 策略控制</p>
                 </div>
             </div>
             <div class="header-stats">
@@ -474,6 +566,102 @@
 
         <!-- Dashboard Grid -->
         <div class="dashboard-grid">
+            <!-- Card 0: Account Balance -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">💳</span>
+                        账户余额
+                    </div>
+                </div>
+                <div class="card-value" id="account-balance">$10,000.00</div>
+                <div class="card-subtitle">
+                    <span class="trend-up">↑</span>
+                    <span>USDC 可用余额</span>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-label">
+                        <span>使用中</span>
+                        <span id="balance-usage">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 0%" id="balance-progress"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Strategy Toggle Panel -->
+            <div class="card" style="grid-column: span 2;">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">🎛️</span>
+                        策略开关
+                    </div>
+                </div>
+                <div class="strategy-toggles">
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">原子套利</div>
+                            <div class="strategy-desc">YES + NO < 1.0</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-atomic" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">NegRisk 套利</div>
+                            <div class="strategy-desc">概率差异套利</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-negrisk">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">组合套利</div>
+                            <div class="strategy-desc">多市场组合</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-combo">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">结算滞后</div>
+                            <div class="strategy-desc">结算窗口期</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-settlement">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">盘口做市</div>
+                            <div class="strategy-desc">提供双边报价</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-mmm">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="strategy-toggle">
+                        <div class="strategy-info">
+                            <div class="strategy-name">尾部风险承保</div>
+                            <div class="strategy-desc">承保极端事件</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="strategy-tail">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <!-- Card 1: Total Trades -->
             <div class="card">
                 <div class="card-header">
@@ -602,22 +790,36 @@
                     <div class="status-item">
                         <div class="status-icon success">✓</div>
                         <div class="status-text">
-                            <div class="status-label">Circuit Breaker</div>
-                            <div class="status-value">正常</div>
+                            <div class="status-label">SimulatedExecutor</div>
+                            <div class="status-value">已初始化</div>
                         </div>
                     </div>
                     <div class="status-item">
                         <div class="status-icon success">✓</div>
                         <div class="status-text">
-                            <div class="status-label">Nonce Manager</div>
-                            <div class="status-value">同步中</div>
+                            <div class="status-label">PnLTracker</div>
+                            <div class="status-value">运行中</div>
                         </div>
                     </div>
                     <div class="status-item">
-                        <div class="status-icon warning">⚠</div>
+                        <div class="status-icon success">✓</div>
                         <div class="status-text">
-                            <div class="status-label">Gas Price</div>
-                            <div class="status-value">35 Gwei</div>
+                            <div class="status-label">DryRunSanityCheck</div>
+                            <div class="status-value">60s 检查</div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon success">✓</div>
+                        <div class="status-text">
+                            <div class="status-label">EventRecorder</div>
+                            <div class="status-value">即时刷新</div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon info">ℹ</div>
+                        <div class="status-text">
+                            <div class="status-label">ExecutionRouter</div>
+                            <div class="status-value">Dry-Run 模式</div>
                         </div>
                     </div>
                 </div>
@@ -633,16 +835,36 @@
                 </div>
                 <div class="activity-list" id="activity-list">
                     <div class="activity-item success">
-                        <div class="activity-time">2026-02-01 11:53:45</div>
-                        <div class="activity-content">✓ WebSocket连接成功</div>
+                        <div class="activity-time">v4.3.0 新特性</div>
+                        <div class="activity-content">✅ SimulatedExecutor - VWAP 模拟成交</div>
                     </div>
-                    <div class="activity-item">
-                        <div class="activity-time">2026-02-01 11:53:44</div>
-                        <div class="activity-content">🚀 系统启动完成</div>
+                    <div class="activity-item success">
+                        <div class="activity-time">v4.3.0 新特性</div>
+                        <div class="activity-content">✅ PnLTracker - 实时 PnL 追踪</div>
                     </div>
-                    <div class="activity-item">
-                        <div class="activity-time">2026-02-01 11:53:44</div>
-                        <div class="activity-content">📊 事件记录器已初始化</div>
+                    <div class="activity-item success">
+                        <div class="activity-time">v4.3.0 新特性</div>
+                        <div class="activity-content">✅ DryRunSanityCheck - 60s 自动诊断</div>
+                    </div>
+                    <div class="activity-item success">
+                        <div class="activity-time">v4.3.0 新特性</div>
+                        <div class="activity-content">✅ EventRecorder - 即时事件刷新</div>
+                    </div>
+                    <div class="activity-item info">
+                        <div class="activity-time">2026-02-01 系统启动</div>
+                        <div class="activity-content">ℹ Dry-Run 模式已启用 (零风险测试)</div>
+                    </div>
+                    <div class="activity-item success">
+                        <div class="activity-time">WebSocket</div>
+                        <div class="activity-content">✓ 已连接到 Polymarket WebSocket</div>
+                    </div>
+                    <div class="activity-item success">
+                        <div class="activity-time">市场订阅</div>
+                        <div class="activity-content">✓ 已订阅 31 个市场 (62 个代币)</div>
+                    </div>
+                    <div class="activity-item info">
+                        <div class="activity-time">监控中</div>
+                        <div class="activity-content">ℹ 正在监控套利机会...</div>
                     </div>
                 </div>
             </div>
@@ -719,6 +941,93 @@
                 }
             }
         });
+
+        // Strategy Toggle Handlers
+        const strategies = {
+            'strategy-atomic': 'atomic',
+            'strategy-negrisk': 'negrisk',
+            'strategy-combo': 'combo',
+            'strategy-settlement': 'settlement',
+            'strategy-mmm': 'mmm',
+            'strategy-tail': 'tail'
+        };
+
+        // Load strategy states from server
+        async function loadStrategies() {
+            try {
+                const response = await fetch('/api/strategies');
+                const data = await response.json();
+
+                Object.keys(strategies).forEach(id => {
+                    const checkbox = document.getElementById(id);
+                    if (checkbox && data.strategies) {
+                        checkbox.checked = data.strategies[strategies[id]] || false;
+                    }
+                });
+            } catch (error) {
+                console.log('Using default strategy states');
+            }
+        }
+
+        // Handle strategy toggle
+        Object.keys(strategies).forEach(id => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                checkbox.addEventListener('change', async function() {
+                    const strategy = strategies[id];
+                    const enabled = this.checked;
+
+                    try {
+                        const response = await fetch('/api/strategies', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ strategy, enabled })
+                        });
+
+                        const result = await response.json();
+                        if (result.success) {
+                            addActivity('success', `策略 ${strategy} ${enabled ? '已启用' : '已禁用'}`);
+                        } else {
+                            addActivity('error', `策略 ${strategy} 切换失败: ${result.error}`);
+                            this.checked = !enabled; // Revert
+                        }
+                    } catch (error) {
+                        console.error('Failed to toggle strategy:', error);
+                        addActivity('error', `策略 ${strategy} 切换失败`);
+                        this.checked = !enabled; // Revert
+                    }
+                });
+            }
+        });
+
+        // Load account balance
+        async function loadAccountBalance() {
+            try {
+                const response = await fetch('/api/balance');
+                const data = await response.json();
+
+                const balanceElement = document.getElementById('account-balance');
+                if (balanceElement && data.balance) {
+                    balanceElement.textContent = `$${parseFloat(data.balance).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+                }
+
+                const usageElement = document.getElementById('balance-usage');
+                const progressElement = document.getElementById('balance-progress');
+                if (usageElement && progressElement && data.usage_percent !== undefined) {
+                    usageElement.textContent = `${data.usage_percent.toFixed(1)}%`;
+                    progressElement.style.width = `${data.usage_percent}%`;
+                }
+            } catch (error) {
+                console.log('Using default balance');
+            }
+        }
+
+        // Initial load
+        loadStrategies();
+        loadAccountBalance();
+
+        // Update balance every 10 seconds
+        setInterval(loadAccountBalance, 10000);
 
         // Update time
         const startTime = new Date();

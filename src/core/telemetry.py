@@ -30,6 +30,8 @@ class EventType(str, Enum):
     OPPORTUNITY_DETECTED = "opportunity_detected"
     RISK_PASSED = "risk_passed"
     ORDER_SUBMITTED = "order_submitted"
+    FILL = "fill"
+    PNL_UPDATE = "pnl_update"
 
 
 @dataclass

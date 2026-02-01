@@ -17,6 +17,19 @@ import time
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Strategy state management
+strategy_states = {
+    'atomic': True,
+    'negrisk': False,
+    'combo': False,
+    'settlement': False,
+    'mmm': False,
+    'tail': False
+}
+
+# Account balance (in dry-run mode, this is simulated)
+account_balance = 10000.00
+
 class PolyArbAPIHandler(SimpleHTTPRequestHandler):
     """Custom HTTP handler with API endpoints"""
 
@@ -31,11 +44,27 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
             self.send_json(self.get_metrics())
         elif self.path == '/api/logs':
             self.send_json(self.get_logs())
+        elif self.path.startswith('/api/events'):
+            self.send_json(self.get_events())
+        elif self.path == '/api/health':
+            self.send_json(self.get_health())
+        elif self.path == '/api/strategies':
+            self.send_json(self.get_strategies())
+        elif self.path == '/api/balance':
+            self.send_json(self.get_balance())
         elif self.path == '/':
             self.path = '/dashboard.html'
             super().do_GET()
         else:
             super().do_GET()
+
+    def do_POST(self):
+        """Handle POST requests"""
+        if self.path == '/api/strategies':
+            self.handle_strategies_post()
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def send_json(self, data):
         """Send JSON response"""
@@ -75,6 +104,131 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
                 lines = f.readlines()[-100:]  # Last 100 lines
             return {"logs": [line.strip() for line in lines if line.strip()]}
         return {"logs": []}
+
+    def get_events(self):
+        """Get recent trading events from events.jsonl"""
+        try:
+            from datetime import date
+
+            # Get today's events file path
+            events_dir = Path("../data/events")
+            today = date.today()
+            date_str = today.strftime("%Y%m%d")
+            events_file = events_dir / date_str / "events.jsonl"
+
+            if not events_file.exists():
+                return {
+                    "events": [],
+                    "file_path": str(events_file),
+                    "status": "no_file"
+                }
+
+            events = []
+            with open(events_file, 'r') as f:
+                # Read last 100 events
+                lines = f.readlines()[-100:]
+
+            for line in lines:
+                line = line.strip()
+                if line:
+                    try:
+                        event = json.loads(line)
+                        events.append(event)
+                    except json.JSONDecodeError:
+                        continue
+
+            return {
+                "events": events,
+                "file_path": str(events_file),
+                "count": len(events),
+                "status": "ok"
+            }
+
+        except Exception as e:
+            return {
+                "events": [],
+                "error": str(e),
+                "status": "error"
+            }
+
+    def get_health(self):
+        """Health check for events system"""
+        try:
+            from datetime import date
+
+            events_dir = Path("../data/events")
+            today = date.today()
+            date_str = today.strftime("%Y%m%d")
+            events_file = events_dir / date_str / "events.jsonl"
+
+            health = {
+                "events_enabled": True,
+                "events_file_exists": events_file.exists(),
+                "events_file_path": str(events_file),
+                "events_dir_exists": events_dir.exists()
+            }
+
+            if events_file.exists():
+                # Count events
+                with open(events_file, 'r') as f:
+                    line_count = sum(1 for _ in f)
+                health["total_events"] = line_count
+
+            return health
+
+        except Exception as e:
+            return {
+                "events_enabled": False,
+                "error": str(e),
+                "status": "error"
+            }
+
+    def get_strategies(self):
+        """Get current strategy states"""
+        return {
+            "strategies": strategy_states,
+            "status": "ok"
+        }
+
+    def get_balance(self):
+        """Get account balance"""
+        # In dry-run mode, return simulated balance
+        # In live mode, this would fetch from blockchain/CEX
+        return {
+            "balance": f"{account_balance:.2f}",
+            "currency": "USDC",
+            "usage_percent": 0.0,  # Will be calculated from actual positions
+            "status": "ok"
+        }
+
+    def handle_strategies_post(self):
+        """Handle strategy toggle POST requests"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data)
+
+            strategy = data.get('strategy')
+            enabled = data.get('enabled')
+
+            if strategy in strategy_states:
+                strategy_states[strategy] = enabled
+                print(f"[Strategy Toggle] {strategy}: {'ENABLED' if enabled else 'DISABLED'}")
+                self.send_json({
+                    "success": True,
+                    "strategy": strategy,
+                    "enabled": enabled
+                })
+            else:
+                self.send_json({
+                    "success": False,
+                    "error": f"Unknown strategy: {strategy}"
+                })
+        except Exception as e:
+            self.send_json({
+                "success": False,
+                "error": str(e)
+            })
 
     def log_message(self, format, *args):
         """Suppress default logging"""

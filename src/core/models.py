@@ -397,3 +397,55 @@ class TailRiskSignal(Signal):
             raise ValueError("Hedge ratio must be between 0 and 1")
         return v
 
+
+class TradingMetrics(BaseModel):
+    """Split trading metrics for clarity between opportunities, orders, fills, and PnL."""
+
+    opportunities_seen: int = Field(default=0, description="Total opportunities detected")
+    orders_submitted: int = Field(default=0, description="Total orders submitted to execution")
+    fills_simulated: int = Field(default=0, description="Simulated fills (dry-run only)")
+    fills_confirmed: int = Field(default=0, description="Confirmed fills (live only)")
+    pnl_updates: int = Field(default=0, description="Total PnL updates recorded")
+    cumulative_expected_edge: Decimal = Field(
+        default=Decimal("0"),
+        description="Cumulative expected edge from signals (USDC)"
+    )
+    cumulative_simulated_pnl: Decimal = Field(
+        default=Decimal("0"),
+        description="Cumulative simulated PnL from dry-run fills (USDC)"
+    )
+    cumulative_realized_pnl: Decimal = Field(
+        default=Decimal("0"),
+        description="Cumulative realized PnL from live fills (USDC)"
+    )
+    reject_codes: dict = Field(
+        default_factory=dict,
+        description="Dictionary of reject codes and their counts"
+    )
+    start_time: float = Field(
+        default_factory=lambda: __import__('asyncio').get_event_loop().time() if __import__('asyncio').get_event_loop().is_running() else 0,
+        description="Start time for metrics tracking (event loop time)"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "opportunities_seen": self.opportunities_seen,
+            "orders_submitted": self.orders_submitted,
+            "fills_simulated": self.fills_simulated,
+            "fills_confirmed": self.fills_confirmed,
+            "pnl_updates": self.pnl_updates,
+            "cumulative_expected_edge": str(self.cumulative_expected_edge),
+            "cumulative_simulated_pnl": str(self.cumulative_simulated_pnl),
+            "cumulative_realized_pnl": str(self.cumulative_realized_pnl),
+            "reject_codes": self.reject_codes,
+        }
+
+    @field_validator("opportunities_seen", "orders_submitted", "fills_simulated", "fills_confirmed", "pnl_updates")
+    @classmethod
+    def validate_non_negative(cls, v: int) -> int:
+        """Ensure counters are non-negative."""
+        if v < 0:
+            raise ValueError("Counters cannot be negative")
+        return v
+

@@ -18,6 +18,11 @@ from src.connectors.polymarket_ws import PolymarketWSClient
 from src.strategies.atomic import AtomicArbitrageStrategy
 from src.core.recorder import EventRecorder
 from src.core.telemetry import generate_trace_id, TraceContext
+from src.core.models import TradingMetrics
+from src.execution.simulated_executor import SimulatedExecutor
+from src.execution.execution_router import ExecutionRouter
+from src.execution.pnl_tracker import PnLTracker
+from src.execution.diagnostics import DryRunSanityCheck
 
 
 async def load_active_markets(markets_file: str = "data/active_markets.json"):
@@ -79,9 +84,9 @@ async def main():
     logger.info(f"交易规模: ${Config.TRADE_SIZE}")
     logger.info(f"最小利润阈值: {Config.MIN_PROFIT_THRESHOLD * 100}%")
 
-    # Initialize event recorder
-    recorder = EventRecorder(buffer_size=100)
-    logger.info("事件记录器已初始化")
+    # Initialize event recorder with immediate flush for real-time UI updates
+    recorder = EventRecorder(buffer_size=100, immediate_flush=True)
+    logger.info("事件记录器已初始化 (immediate flush enabled)")
 
     # Initialize WebSocket client
     ws_client = PolymarketWSClient(
@@ -97,6 +102,17 @@ async def main():
         min_profit_threshold=Config.MIN_PROFIT_THRESHOLD,
         gas_estimate=Decimal("0.0"),  # No gas in dry-run
     )
+
+    # Initialize simulated executor and execution router
+    simulated_executor = SimulatedExecutor(
+        slippage_bps=int(Config.MAX_SLIPPAGE * 10000),  # Convert to bps
+    )
+    execution_router = ExecutionRouter(simulated_executor=simulated_executor)
+    pnl_tracker = PnLTracker()
+    sanity_checker = DryRunSanityCheck(check_interval_seconds=60)
+    logger.info("✅ Simulated execution engine initialized")
+    logger.info("✅ PnL tracker initialized")
+    logger.info("✅ Dry-run sanity checker initialized")
 
     try:
         # Load active markets
@@ -154,13 +170,15 @@ async def main():
         logger.info("🎧 正在监听订单本更新...")
         listen_task = asyncio.create_task(ws_client.listen())
 
-        # Statistics
-        stats = {
-            'checks': 0,
-            'opportunities': 0,
-            'trades': 0,
-            'start_time': asyncio.get_event_loop().time(),
-        }
+        # Statistics - Using TradingMetrics for proper tracking
+        stats = TradingMetrics(
+            start_time=asyncio.get_event_loop().time(),
+        )
+        checks = 0  # Keep separate counter for loop iterations
+
+        # Start dry-run sanity checker
+        await sanity_checker.start(stats)
+        logger.info("✅ Dry-run sanity checker started (60s interval)")
 
         try:
             # Monitor for opportunities
@@ -171,7 +189,7 @@ async def main():
 
             while True:
                 await asyncio.sleep(1)
-                stats['checks'] += 1
+                checks += 1
 
                 # Check all market pairs
                 for pair in token_pairs:
@@ -186,6 +204,10 @@ async def main():
                             asks=[{"price": str(a.price), "size": str(a.size)} for a in yes_book.asks]
                         )
 
+                        # Update orderbooks in simulated executor
+                        simulated_executor.update_orderbook(yes_book.token_id, yes_book)
+                        simulated_executor.update_orderbook(no_book.token_id, no_book)
+
                         # Generate trace_id for this opportunity check
                         trace_id = generate_trace_id()
 
@@ -193,7 +215,7 @@ async def main():
                         opportunity = await strategy.check_opportunity(yes_book, no_book, trace_id=trace_id)
 
                         if opportunity:
-                            stats['opportunities'] += 1
+                            stats.opportunities_seen += 1
 
                             logger.info("🎯 检测到套利机会:")
                             logger.info(f"   市场: {pair['question'][:60]}")
@@ -215,33 +237,84 @@ async def main():
                                 expected_profit=opportunity.expected_profit
                             )
 
-                            if Config.DRY_RUN:
-                                logger.info("   [模拟模式] 未执行交易")
-                                stats['trades'] += 1
+                            # Use execution router for unified pipeline
+                            stats.orders_submitted += 1
 
-                                # Record simulated order result
-                                await recorder.record_order_result(
-                                    trace_id=trace_id,
-                                    success=True,
-                                    tx_hash="0x_simulated",
-                                    gas_used=0,
-                                    actual_price=opportunity.yes_price
+                            if Config.DRY_RUN:
+                                # Execute with simulated executor
+                                yes_fill, no_fill, tx_result = await execution_router.execute_arbitrage(
+                                    opportunity,
+                                    yes_book,
+                                    no_book,
+                                    trace_id
                                 )
+
+                                # Track fills
+                                if yes_fill and no_fill:
+                                    stats.fills_simulated += 2
+
+                                    # Record fill events
+                                    await recorder.record_event("fill", yes_fill.to_dict())
+                                    await recorder.record_event("fill", no_fill.to_dict())
+
+                                    # Process fills through PnL tracker
+                                    pnl_update = await pnl_tracker.process_fills(
+                                        fills=[yes_fill, no_fill],
+                                        expected_edge=opportunity.expected_profit,
+                                        trace_id=trace_id,
+                                        strategy="atomic"
+                                    )
+
+                                    # Update stats
+                                    stats.pnl_updates += 1
+
+                                    # Update cumulative metrics
+                                    stats.cumulative_simulated_pnl = pnl_tracker._cumulative_simulated_pnl
+                                    stats.cumulative_expected_edge = pnl_tracker._cumulative_expected_edge
+
+                                    # Record PnL update event
+                                    await recorder.record_event("pnl_update", pnl_update.to_dict())
+
+                                    # Log PnL information
+                                    logger.info(f"   [模拟模式] PnL更新:")
+                                    logger.info(f"      预期收益: ${pnl_update.expected_edge:.4f}")
+                                    logger.info(f"      模拟PnL: ${pnl_update.simulated_pnl:.4f}")
+                                    logger.info(f"      手续费: ${pnl_update.fees_paid:.4f}")
+                                    logger.info(f"      滑点成本: ${pnl_update.slippage_cost:.4f}")
+                                else:
+                                    logger.warning("   [模拟模式] 模拟成交失败")
                             else:
                                 logger.warning("   [实盘模式] 将在此处执行交易")
 
                 # Log statistics every 60 seconds
-                if stats['checks'] % 60 == 0:
-                    elapsed = asyncio.get_event_loop().time() - stats['start_time']
-                    rate = stats['checks'] / elapsed * 60  # checks per minute
+                if checks % 60 == 0:
+                    elapsed = asyncio.get_event_loop().time() - stats.start_time
+                    rate = checks / elapsed * 60  # checks per minute
 
                     logger.info("="*60)
                     logger.info(f"📊 运行统计 (运行时间: {int(elapsed)}s):")
-                    logger.info(f"   检查次数: {stats['checks']}")
-                    logger.info(f"   检测机会: {stats['opportunities']}")
-                    logger.info(f"   执行交易: {stats['trades']}")
+                    logger.info(f"   检查次数: {checks}")
+                    logger.info(f"   检测机会: {stats.opportunities_seen}")
+                    logger.info(f"   订单提交: {stats.orders_submitted}")
+                    logger.info(f"   模拟成交: {stats.fills_simulated}")
+                    logger.info(f"   确认成交: {stats.fills_confirmed}")
+                    logger.info(f"   PnL更新: {stats.pnl_updates}")
                     logger.info(f"   检查速率: {rate:.1f} 次/分钟")
-                    logger.info(f"   机会率: {stats['opportunities']/stats['checks']*100:.2f}%")
+                    if checks > 0:
+                        logger.info(f"   机会率: {stats.opportunities_seen/checks*100:.2f}%")
+                    logger.info(f"   累计预期收益: ${stats.cumulative_expected_edge:.4f}")
+                    logger.info(f"   累计模拟PnL: ${stats.cumulative_simulated_pnl:.4f}")
+                    logger.info(f"   累计实际PnL: ${stats.cumulative_realized_pnl:.4f}")
+
+                    # Dry-run sanity check
+                    if Config.DRY_RUN:
+                        if stats.orders_submitted > 0 and stats.fills_simulated == 0:
+                            logger.error("")
+                            logger.error("⚠️  DRY_RUN_NO_FILLS: 订单已提交但没有模拟成交!")
+                            logger.error("   这表明 dry-run 模式未正确模拟执行。")
+                            logger.error("   请检查 SimulatedExecutor 是否已正确集成。")
+                            logger.error("")
+
                     logger.info("="*60)
 
             logger.info("演示完成。在生产环境中，这将无限期运行。")
@@ -257,6 +330,10 @@ async def main():
         raise
 
     finally:
+        # Stop sanity checker
+        await sanity_checker.stop()
+        logger.info("Dry-run sanity checker stopped")
+
         # Flush recorder before exiting
         await recorder.flush()
         logger.info("事件记录器已刷新")
