@@ -2,8 +2,8 @@
 
 > 低延迟预测市场套利机器人 - 用于 Polymarket 平台的自动化交易
 
-[![Tests](https://img.shields.io/badge/tests-264%20passing-success)](#)
-[![Coverage](https://img.shields.io/badge/coverage-82.46%25-brightgreen)](htmlcov/index.html)
+[![Tests](https://img.shields.io/badge/tests-315%20passing-success)](#)
+[![Coverage](https://img.shields.io/badge/coverage-69.51%25-brightgreen)](htmlcov/index.html)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -22,7 +22,8 @@
 - 🔄 **自动重试** - 交易失败自动重试机制
 - 🔍 **可观测性** - 分布式追踪、延迟分析、事件记录（Phase 1）
 - 📊 **Edge 分析** - 详细的成本分解和决策归因（Phase 1）
-- 📈 **完整测试** - 264 个测试，82.46% 覆盖率
+- 🛡️ **韧性机制** - 熔断器、Nonce 管理、重试策略（Phase 2）
+- 📈 **完整测试** - 315 个测试，69.51% 覆盖率
 
 ### 支持的策略
 
@@ -36,13 +37,17 @@
 
 | 指标 | 数值 | 状态 |
 |------|------|------|
-| 测试数量 | 264 | ✅ |
+| 测试数量 | 315 | ✅ |
 | 通过率 | 100% | ✅ |
-| 代码覆盖率 | 82.46% | ✅ |
+| 代码覆盖率 | 69.51% | ✅ |
 | Python 版本 | 3.10+ | ✅ |
-| Phase 1 | ✅ 完成 | ✅ |
-| Phase 2 | 🚧 计划中 | ⏳ |
+| Phase 1 | ✅ 可观测性 | ✅ |
+| Phase 2 | ✅ 韧性机制 | ✅ |
 | Phase 3 | 🚧 计划中 | ⏳ |
+
+**文档**:
+- [Phase 1: 可观测性](docs/PHASE1_TELEMETRY.md)
+- [Phase 2: 韧性机制](docs/PHASE2_RESILIENCE.md)
 
 ---
 
