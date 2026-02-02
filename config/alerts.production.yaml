@@ -1,0 +1,223 @@
+# ============================================================
+# PolyArb-X Production Alerts Configuration
+# ============================================================
+# 生产环境告警规则配置
+# 版本: v1.0.0
+# 最后更新: 2026-02-02
+# ============================================================
+
+rules:
+  # --------------------------------------------------------
+  # CRITICAL 级别告警 - 立即停止交易
+  # --------------------------------------------------------
+
+  - id: "WS_DISCONNECTED"
+    name: "WebSocket 连接断开"
+    description: "Polymarket WebSocket 连接断开超过 10 秒"
+    enabled: true
+    severity: "CRITICAL"
+    query:
+      metric: "ws_connected"
+      operator: "=="
+      value: false
+      window_seconds: 10
+    cooldown_seconds: 60
+    actions:
+      - type: "stop_trading"
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+
+  - id: "LIVE_NO_FILLS"
+    name: "实盘无成交"
+    description: "实盘模式下有订单提交但 60 秒内无成交"
+    enabled: true
+    severity: "CRITICAL"
+    query:
+      metric: "live_no_fills"
+      operator: "=="
+      value: true
+      window_seconds: 60
+    cooldown_seconds: 120
+    actions:
+      - type: "stop_trading"
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+
+  - id: "CIRCUIT_BREAKER_OPEN"
+    name: "熔断器开启"
+    description: "熔断器被触发，系统已停止交易"
+    enabled: true
+    severity: "CRITICAL"
+    query:
+      metric: "circuit_breaker_state"
+      operator: "=="
+      value: "OPEN"
+      window_seconds: 0
+    cooldown_seconds: 300
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "熔断器已开启，需要手动重置后才能恢复交易"
+
+  # --------------------------------------------------------
+  # WARNING 级别告警 - 需要关注
+  # --------------------------------------------------------
+
+  - id: "RPC_UNHEALTHY"
+    name: "RPC 不健康"
+    description: "RPC 调用失败率过高（60 秒内超过 5 次）"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "rpc_error_count"
+      operator: ">="
+      value: 5
+      window_seconds: 60
+    cooldown_seconds: 180
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "RPC 节点可能过载或故障，建议切换到备用节点"
+
+  - id: "HIGH_REJECT_RATE"
+    name: "高拒绝率"
+    description: "订单拒绝率过高（5 分钟内超过 5%）"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "reject_rate"
+      operator: ">="
+      value: 0.05
+      window_seconds: 300
+    cooldown_seconds: 300
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "订单拒绝率过高，可能原因：滑点超限、Gas 不足、流动性不足"
+
+  - id: "LATENCY_P95_HIGH"
+    name: "高延迟"
+    description: "P95 延迟过高（5 分钟内超过 500ms）"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "latency_p95"
+      operator: ">="
+      value: 500
+      window_seconds: 300
+    cooldown_seconds: 600
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "系统延迟过高，可能影响交易执行效率"
+
+  - id: "PNL_DRAWDOWN"
+    name: "回撤过大"
+    description: "累计回撤超过阈值"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "drawdown_percent"
+      operator: ">="
+      value: 3
+      window_seconds: 0
+    cooldown_seconds: 3600
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "回撤过大，建议降低仓位或停止交易"
+
+  - id: "LOW_BALANCE"
+    name: "低余额"
+    description: "钱包余额低于 $100"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "wallet_balance_usd"
+      operator: "<"
+      value: 100
+      window_seconds: 0
+    cooldown_seconds: 3600
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "钱包余额过低，可能影响交易执行"
+
+  - id: "POSITION_LIMIT_NEAR"
+    name: "仓位接近上限"
+    description: "仓位使用率超过 90%"
+    enabled: true
+    severity: "WARNING"
+    query:
+      metric: "position_usage_percent"
+      operator: ">="
+      value: 90
+      window_seconds: 0
+    cooldown_seconds: 600
+    actions:
+      - type: "webhook"
+        url: "${ALERT_WEBHOOK_URL}"
+      - type: "log"
+    message: "仓位接近上限，建议降低仓位或等待现有仓位平仓"
+
+  # --------------------------------------------------------
+  # INFO 级别告警 - 仅记录
+  # --------------------------------------------------------
+
+  - id: "TRADE_EXECUTED"
+    name: "交易执行"
+    description: "记录每笔交易执行"
+    enabled: true
+    severity: "INFO"
+    query:
+      metric: "trade_executed"
+      operator: "=="
+      value: true
+      window_seconds: 0
+    cooldown_seconds: 0
+    actions:
+      - type: "log"
+
+  - id: "OPPORTUNITY_DETECTED"
+    name: "发现机会"
+    description: "记录每个套利机会"
+    enabled: true
+    severity: "INFO"
+    query:
+      metric: "opportunity_detected"
+      operator: ">"
+      value: 0
+      window_seconds: 0
+    cooldown_seconds: 0
+    actions:
+      - type: "log"
+
+# ============================================================
+# 告警配置
+# ============================================================
+
+# Webhook 配置（可选）
+webhook:
+  enabled: false  # 设置为 true 并配置 URL 以启用
+  url: "${ALERT_WEBHOOK_URL}"  # 从环境变量读取
+  timeout_seconds: 10
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+# 告警状态存储
+state_file: "data/alerts/alerts_state.json"
+events_file: "data/alerts/alerts.jsonl"
+
+# 告警评估周期（秒）
+evaluation_interval_seconds: 5
+
+# 告警保留时间（天）
+retention_days: 30

@@ -1,0 +1,124 @@
+# PolyArb-X Configuration File
+# Production Kit - Base Configuration
+# Last Updated: 2026-02-02
+
+# ============================================================
+# Core Configuration
+# ============================================================
+
+# Trading Mode
+# - true: DRY_RUN (no real trades, for testing)
+# - false: LIVE (real money, use with caution)
+DRY_RUN: true  # Start with DRY_RUN for Phase 0
+
+# Profile Name (will be loaded from config/profiles/)
+PROFILE_NAME: "live_shadow_atomic_v1"
+
+# ============================================================
+# Trading Parameters
+# ============================================================
+
+# Trade Size (USD per trade)
+TRADE_SIZE: "1"
+
+# Minimum Profit Threshold (decimal, e.g., 0.01 = 1%)
+MIN_PROFIT_THRESHOLD: "0.01"
+
+# Maximum Position Size (USD)
+MAX_POSITION_SIZE: "10"
+
+# Maximum Daily Loss (USD)
+MAX_DAILY_LOSS: "1"
+
+# Maximum Slippage (decimal, e.g., 0.02 = 2%)
+MAX_SLIPPAGE: "0.02"
+
+# ============================================================
+# Strategy Configuration
+# ============================================================
+
+ATOMIC_ARBITRAGE_ENABLED: true
+NEGRISK_ARBITRAGE_ENABLED: false
+COMBO_ARBITRAGE_ENABLED: false
+MARKET_MAKING_ENABLED: false
+
+# ============================================================
+# Gas Configuration
+# ============================================================
+
+GAS_PRICE_MODE: "eip1559"
+MAX_GAS_PRICE: 500000000000  # 500 gwei
+MAX_GAS_COST: "1.0"
+GAS_LIMIT_MULTIPLIER: 1.2
+
+# ============================================================
+# Retry Configuration
+# ============================================================
+
+MAX_RETRIES: 3
+RETRY_DELAY: 1.0
+
+# ============================================================
+# Circuit Breaker
+# ============================================================
+
+CONSECUTIVE_FAILURES_THRESHOLD: 3
+FAIL_RATE_THRESHOLD: "0.40"
+
+# ============================================================
+# Polymarket Configuration
+# ============================================================
+
+POLYGON_CHAIN_ID: 137
+POLYGON_RPC_URL: "https://polygon-rpc.com"
+POLYMARKET_WS_URL: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+FEE_RATE: "0.0035"
+
+# ============================================================
+# Logging
+# ============================================================
+
+LOG_LEVEL: "INFO"
+LOG_FILE: "data/polyarb-x.log"
+
+# ============================================================
+# Database
+# ============================================================
+
+DATABASE_PATH: "data/polyarb.db"
+
+# ============================================================
+# Wallet Configuration
+# ============================================================
+# IMPORTANT: PRIVATE_KEY should be set via environment variable
+# Never hardcode private keys in config files!
+# PRIVATE_KEY is loaded from .env file
+
+# Wallet Address (derived from private key)
+WALLET_ADDRESS: "0x0000000000000000000000000000000000000001"  # Placeholder
+
+# ============================================================
+# Anomaly Defense (Phase 2)
+# ============================================================
+
+ANOMALY_DEFENSE_ENABLED: true
+ANOMALY_DEFENSE_CORRELATION_BREAK_THRESHOLD: 0.5
+ANOMALY_DEFENSE_DEPTH_DEPLETION_THRESHOLD: 0.5
+ANOMALY_DEFENSE_PRICE_PULSE_THRESHOLD: 0.1
+
+# ============================================================
+# Advanced Features (Disabled by default)
+# ============================================================
+
+PUBLIC_INFO_ENABLED: false
+PUBLIC_INFO_MAX_LATENCY_SECONDS: 300.0
+
+TAIL_RISK_ENABLED: false
+TAIL_RISK_MAX_CORRELATION_CLUSTER_EXPOSURE: "300"
+TAIL_RISK_MAX_WORST_CASE_LOSS: "100"
+TAIL_RISK_MIN_TAIL_PROBABILITY: 0.05
+
+SETTLEMENT_LAG_ENABLED: false
+SETTLEMENT_LAG_MAX_CARRY_COST_PCT: "0.02"
+SETTLEMENT_LAG_MAX_DISPUTE_SCORE: 0.3
+SETTLEMENT_LAG_MIN_WINDOW_HOURS: 1.0

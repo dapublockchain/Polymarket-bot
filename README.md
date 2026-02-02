@@ -27,6 +27,9 @@
 - 🧪 **TDD测试** - 448个测试，81.93%覆盖率，严格遵循TDD方法论
 - 🆕 **新策略** - 结算滞后、盘口做市、尾部风险承保（v0.4.0 新增）
 - 🛡️ **异常防御** - 反操纵和异常市场检测（v0.4.0 新增）
+- 🎛️ **配置模板** - 7种预设配置，一键切换（v4.3.0 新增）
+- 🔔 **告警中心** - 实时告警监控，支持Webhook推送（v4.3.0 新增）
+- 🚀 **生产套件** - 4阶段上线计划，完整Go/No-Go检查（v4.3.0 新增）
 
 ### 支持的策略
 
@@ -699,6 +702,119 @@ python3 -m pytest tests/ --cov=src
 # 6. 提交代码
 git commit -m "feat: add new feature"
 ```
+
+---
+
+## 🚀 Production Kit (生产上线套件)
+
+PolyArb-X 包含完整的生产上线套件，支持从 Shadow Production → Scaled-Live 的 4 阶段上线流程。
+
+### 快速开始
+
+```bash
+# 1. 初始化配置
+bash scripts/seed_profiles.sh
+
+# 2. 执行 Go/No-Go 检查
+bash scripts/go_no_go_check.sh
+
+# 3. 启动 Shadow Production (Phase 0 - 干运行)
+bash scripts/start_shadow.sh
+
+# 4. 启动 Live Production (Phase 1 - 微量实盘 $2/trade)
+bash scripts/start_live_safe.sh
+```
+
+### 4 阶段上线流程
+
+| 阶段 | 模式 | 资金 | 目标 | 文档 |
+|------|------|------|------|------|
+| **Phase 0** | Shadow (DRY_RUN) | $0 | 验证系统稳定性 | `docs/PRODUCTION_PLAN.md` |
+| **Phase 1** | Micro-Live | $2/trade | 验证真实执行 | 7 天无 CRITICAL 告警 |
+| **Phase 2** | Constrained-Live | $5/trade | 提高交易规模 | 14 天 CRITICAL 告警 |
+| **Phase 3** | Scaled-Live | $10-20/trade | 规模化生产 | 长期稳定运行 |
+
+### 配置模板
+
+7 种内置配置模板，位于 `config/profiles/`:
+
+- `conservative.yaml` - 保守型（小仓位、高阈值）
+- `balanced.yaml` - 平衡型（默认配置）
+- `aggressive.yaml` - 激进型（大仓位、低阈值）
+- `maker.yaml` - 做市商型（post-only）
+- `taker.yaml` - 接单型（快速成交）
+- `sandbox.yaml` - 沙盒测试（极小仓位）
+- `live_safe.yaml` - 实盘安全（Phase 1 生产）
+
+### 生产配置
+
+4 个阶段专用配置：
+
+- `live_shadow_atomic_v1.yaml` - Phase 0 Shadow Production
+- `live_safe_atomic_v1.yaml` - Phase 1 Micro-Live ($2/trade)
+- `live_constrained_atomic_v1.yaml` - Phase 2 Constrained-Live ($5/trade)
+- `live_scaled_atomic_v1.yaml` - Phase 3 Scaled-Live ($10-20/trade)
+
+### 告警规则
+
+生产级告警配置（`config/alerts.production.yaml`），包含 10 个内置规则：
+
+**CRITICAL (立即停止交易):**
+- `WS_DISCONNECTED` - WebSocket 断开 > 10 秒
+- `LIVE_NO_FILLS` - 实盘无成交 > 60 秒
+- `CIRCUIT_BREAKER_OPEN` - 熔断器开启
+
+**WARNING (监控并处理):**
+- `RPC_UNHEALTHY` - RPC 错误 > 5 (60秒)
+- `HIGH_REJECT_RATE` - 订单拒绝率 > 5%
+- `LATENCY_P95_HIGH` - P95 延迟 > 500ms
+- `PNL_DRAWDOWN` - 回撤 > 阈值
+- `LOW_BALANCE` - 余额 < $100
+- `POSITION_LIMIT_NEAR` - 仓位使用率 > 90%
+
+### 脚本工具
+
+**启动脚本:**
+- `scripts/start_shadow.sh` - 启动 Shadow Production
+- `scripts/start_live_safe.sh` - 启动 Live Production (含 Go/No-Go 检查)
+
+**运维脚本:**
+- `scripts/go_no_go_check.sh` - Go/No-Go 检查清单
+- `scripts/backup_state.sh` - 备份当前状态
+- `scripts/production_daily_report.py` - 生成每日报告
+
+### 文档
+
+- `docs/PRODUCTION_PLAN.md` - 生产上线计划（4 阶段）
+- `docs/GO_NO_GO_CHECKLIST.md` - 启动前检查清单
+- `docs/PRODUCTION_RUNBOOK.md` - 运行手册（故障排查、应急程序）
+
+### UI 界面
+
+启动 Web 服务器后访问：
+
+- **主 Dashboard**: http://localhost:8083/dashboard.html
+- **配置模板**: http://localhost:8083/profiles.html
+- **告警中心**: http://localhost:8083/alerts.html
+
+功能特性：
+- 一键切换配置模板
+- 配置差异预览
+- 风险自动检测
+- 告警实时监控
+- 审计历史时间线
+
+### 最佳实践
+
+1. **测试环境**: 先使用 `sandbox` 或 `conservative` 配置测试
+2. **生产环境**: 从 Phase 0 (Shadow) 开始，逐步放量
+3. **定期备份**: 每日执行 `bash scripts/backup_state.sh`
+4. **监控告警**: 保持告警中心页面打开
+5. **审计日志**: 定期查看 `data/audit/config_changes.jsonl`
+
+详细文档请参考：
+- `PROFILES_ALERTS_COMPLETE.md` - Profiles & Alerts 系统文档
+- `RUNNING_STATUS.md` - 系统运行状态报告
 
 ---
 
