@@ -58,8 +58,14 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
             self.send_json(self.get_strategies())
         elif self.path == '/api/balance':
             self.send_json(self.get_balance())
+        elif self.path == '/api/balance/detail':
+            self.send_json(self.get_balance_detail())
         elif self.path == '/api/profiles':
             self.send_json(self.get_profiles())
+        elif self.path == '/api/mode':
+            self.send_json(self.get_mode())
+        elif self.path == '/api/mode/check-config':
+            self.send_json(self.handle_check_config())
         elif self.path.startswith('/api/profiles/'):
             self.handle_profile_get()
         elif self.path == '/api/audit/config_changes':
@@ -74,6 +80,8 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
         """Handle POST requests"""
         if self.path == '/api/strategies':
             self.handle_strategies_post()
+        elif self.path == '/api/mode/switch':
+            self.handle_mode_switch()
         elif self.path.startswith('/api/profiles/'):
             self.handle_profile_post()
         elif self.path == '/api/profiles/save':
@@ -94,9 +102,14 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
 
     def get_status(self):
         """Get system status"""
+        # Get mode status from profile manager
+        mode_status = profile_manager.get_mode_status()
+
         return {
             "status": "online",
-            "mode": "dry-run",
+            "mode": mode_status["mode"],
+            "dry_run": mode_status["dry_run"],
+            "active_profile": mode_status["profile"],
             "websocket_connected": True,
             "uptime_seconds": int(time.time() - start_time),
             "last_update": datetime.now().isoformat()
@@ -210,14 +223,115 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
 
     def get_balance(self):
         """Get account balance"""
-        # In dry-run mode, return simulated balance
-        # In live mode, this would fetch from blockchain/CEX
-        return {
-            "balance": f"{account_balance:.2f}",
-            "currency": "USDC",
-            "usage_percent": 0.0,  # Will be calculated from actual positions
-            "status": "ok"
-        }
+        from src.core.config import Config
+
+        # Check if live mode
+        if not Config.DRY_RUN:
+            # Live mode: fetch real balance from blockchain
+            try:
+                from src.connectors.web3_client import Web3Client
+                import asyncio
+
+                # Create Web3 client
+                web3_client = Web3Client(
+                    rpc_url=Config.POLYGON_RPC_URL,
+                    private_key=Config.PRIVATE_KEY
+                )
+
+                # Get USDC balance (need to run async method in sync context)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    balance = loop.run_until_complete(
+                        web3_client.get_balance(Config.WALLET_ADDRESS)
+                    )
+                finally:
+                    loop.close()
+
+                return {
+                    "balance": f"{balance:.2f}",
+                    "currency": "USDC",
+                    "usage_percent": 0.0,  # TODO: Calculate from actual positions
+                    "mode": "live",
+                    "wallet_address": Config.WALLET_ADDRESS,
+                    "status": "ok"
+                }
+            except Exception as e:
+                # Error fetching balance
+                return {
+                    "balance": "0.00",
+                    "currency": "USDC",
+                    "error": str(e),
+                    "mode": "live",
+                    "status": "error"
+                }
+        else:
+            # Dry-run mode: return simulated balance
+            return {
+                "balance": f"{account_balance:.2f}",
+                "currency": "USDC",
+                "usage_percent": 0.0,  # Will be calculated from actual positions
+                "mode": "dry_run",
+                "status": "ok"
+            }
+
+    def get_balance_detail(self):
+        """Get detailed balance information including all USDC variants"""
+        from src.core.config import Config
+        from decimal import Decimal
+
+        # Only available in live mode
+        if Config.DRY_RUN:
+            return {
+                "error": "Balance detail only available in live mode",
+                "mode": "dry_run",
+                "status": "na"
+            }
+
+        try:
+            from src.connectors.web3_client import Web3Client
+            import asyncio
+
+            # Create Web3 client
+            web3_client = Web3Client(
+                rpc_url=Config.POLYGON_RPC_URL,
+                private_key=Config.PRIVATE_KEY
+            )
+
+            # Get all USDC balances
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                all_balances = loop.run_until_complete(
+                    web3_client.get_all_usdc_balances(Config.WALLET_ADDRESS)
+                )
+                # Get native USDC balance for trading
+                tradeable_balance = loop.run_until_complete(
+                    web3_client.get_balance(Config.WALLET_ADDRESS)
+                )
+            finally:
+                loop.close()
+
+            return {
+                "wallet_address": Config.WALLET_ADDRESS,
+                "tradeable_balance": {
+                    "amount": f"{tradeable_balance:.2f}",
+                    "currency": "USDC",
+                    "note": "Only native USDC can be used on Polymarket"
+                },
+                "all_balances": all_balances,
+                "summary": {
+                    "total_usdc": float(sum(Decimal(str(b.get("balance", 0))) for b in all_balances.values())),
+                    "polymarket_supported": float(tradeable_balance),
+                    "other_variants": float(sum(Decimal(str(b.get("balance", 0))) for k, b in all_balances.items() if not b.get("polymarket_supported", False)))
+                },
+                "status": "ok"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "status": "error"
+            }
 
     def handle_strategies_post(self):
         """Handle strategy toggle POST requests"""
@@ -408,6 +522,94 @@ class PolyArbAPIHandler(SimpleHTTPRequestHandler):
                 "error": str(e),
                 "status": "error"
             }
+
+    # ========== Mode Switching API ==========
+
+    def get_mode(self):
+        """Handle GET /api/mode - Get current mode and profile"""
+        try:
+            mode_status = profile_manager.get_mode_status()
+
+            return {
+                "mode": mode_status["mode"],
+                "dry_run": mode_status["dry_run"],
+                "profile": mode_status["profile"],
+                "config": mode_status["config"],
+                "status": "ok"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "status": "error"
+            }
+
+    def handle_check_config(self):
+        """Handle GET /api/mode/check-config - Check Polymarket configuration status"""
+        try:
+            from src.core.polymarket_config import PolymarketConfigValidator
+
+            # Get configuration status
+            config_status = PolymarketConfigValidator.get_configuration_status()
+            setup_instructions = PolymarketConfigValidator.get_setup_instructions()
+
+            return {
+                "status": "ok",
+                "config_valid": config_status["valid"],
+                "items": config_status["items"],
+                "missing": config_status["missing"],
+                "invalid": config_status["invalid"],
+                "warnings": config_status.get("warnings", []),
+                "setup_instructions": setup_instructions
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "config_valid": False
+            }
+
+    def handle_mode_switch(self):
+        """Handle POST /api/mode/switch - Switch to a profile"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data)
+
+            profile_name = data.get('profile')
+            confirm_live = data.get('confirm_live', False)
+
+            if not profile_name:
+                self.send_json({
+                    "success": False,
+                    "error": "Profile name is required"
+                }, status=400)
+                return
+
+            # Switch profile
+            result = profile_manager.switch_profile(
+                profile_name=profile_name,
+                applied_by="web_ui",
+                confirm_live=confirm_live
+            )
+
+            # Log the switch attempt
+            if result.get("success"):
+                print(f"[Mode Switch] {profile_name} (confirmed: {confirm_live})")
+                if result.get("is_live_mode"):
+                    print(f"[Mode Switch] ⚠️  SWITCHED TO LIVE MODE!")
+            else:
+                if result.get("requires_confirmation"):
+                    print(f"[Mode Switch] Rejected: {profile_name} requires confirmation")
+                else:
+                    print(f"[Mode Switch] Failed: {result.get('error')}")
+
+            self.send_json(result)
+
+        except Exception as e:
+            self.send_json({
+                "success": False,
+                "error": str(e)
+            }, status=500)
 
     def log_message(self, format, *args):
         """Suppress default logging"""

@@ -7,6 +7,7 @@ Demonstrates the arbitrage bot in dry-run mode.
 import asyncio
 import json
 import logging
+import os
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -80,7 +81,13 @@ async def main():
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
     )
 
-    logger.info("启动 PolyArb-X (模拟模式)")
+    # Log mode
+    if Config.DRY_RUN:
+        logger.info("启动 PolyArb-X (模拟模式)")
+    else:
+        logger.warning("⚠️  启动 PolyArb-X (实盘模式) - 真实资金将用于交易!")
+        logger.warning("⚠️  请确保您已了解风险并设置了适当的限额")
+
     logger.info(f"交易规模: ${Config.TRADE_SIZE}")
     logger.info(f"最小利润阈值: {Config.MIN_PROFIT_THRESHOLD * 100}%")
 
@@ -107,10 +114,83 @@ async def main():
     simulated_executor = SimulatedExecutor(
         slippage_bps=int(Config.MAX_SLIPPAGE * 10000),  # Convert to bps
     )
-    execution_router = ExecutionRouter(simulated_executor=simulated_executor)
+
+    # Initialize live executor if in production mode
+    live_executor = None
+    if not Config.DRY_RUN:
+        from src.execution.live_executor import LiveExecutor
+        from src.execution.tx_sender import TxSender
+        from src.execution.nonce_manager import NonceManager
+        from src.execution.risk_manager import RiskManager
+        from src.execution.circuit_breaker import CircuitBreaker
+        from src.execution.retry_policy import RetryPolicy
+        from src.connectors.web3_client import Web3Client
+
+        # Validate private key
+        if not Config.PRIVATE_KEY:
+            raise ValueError("PRIVATE_KEY must be set in .env for live mode")
+
+        # Initialize Web3 client
+        web3_client = Web3Client(
+            rpc_url=Config.POLYGON_RPC_URL,
+            private_key=Config.PRIVATE_KEY
+        )
+        logger.info(f"✅ Web3 client initialized for {web3_client.address}")
+
+        # Initialize risk manager
+        risk_manager = RiskManager(
+            max_position_size=Config.MAX_POSITION_SIZE,
+            max_gas_cost=Config.MAX_GAS_COST,
+            max_daily_loss=Decimal(os.getenv("MAX_DAILY_LOSS", "10")),
+        )
+
+        # Initialize nonce manager
+        nonce_manager = NonceManager()
+
+        # Initialize circuit breaker
+        circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            timeout_seconds=60,
+        )
+
+        # Initialize retry policy
+        retry_policy = RetryPolicy(
+            max_attempts=Config.MAX_RETRIES,
+            base_delay=Config.RETRY_DELAY,
+        )
+
+        # Initialize transaction sender
+        tx_sender = TxSender(
+            web3_client=web3_client,
+            risk_manager=risk_manager,
+            nonce_manager=nonce_manager,
+            circuit_breaker=circuit_breaker,
+            retry_policy=retry_policy,
+            slippage_tolerance=Config.MAX_SLIPPAGE,
+        )
+        logger.info("✅ TxSender initialized")
+
+        # Initialize live executor
+        live_executor = LiveExecutor(
+            tx_sender=tx_sender,
+            fee_rate=Config.FEE_RATE,
+            slippage_tolerance=Config.MAX_SLIPPAGE,
+        )
+        logger.warning("⚠️  LiveExecutor initialized (REAL TRADING)")
+
+        # Initialize execution router with live executor
+        execution_router = ExecutionRouter(
+            simulated_executor=simulated_executor,
+            live_executor=live_executor,
+        )
+        logger.warning("⚠️  ExecutionRouter in LIVE mode")
+    else:
+        # Dry-run mode
+        execution_router = ExecutionRouter(simulated_executor=simulated_executor)
+        logger.info("✅ ExecutionRouter initialized in DRY_RUN mode")
+
     pnl_tracker = PnLTracker()
     sanity_checker = DryRunSanityCheck(check_interval_seconds=60)
-    logger.info("✅ Simulated execution engine initialized")
     logger.info("✅ PnL tracker initialized")
     logger.info("✅ Dry-run sanity checker initialized")
 

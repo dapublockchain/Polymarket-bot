@@ -9,10 +9,10 @@
 # Trading Mode
 # - true: DRY_RUN (no real trades, for testing)
 # - false: LIVE (real money, use with caution)
-DRY_RUN: true  # Start with DRY_RUN for Phase 0
+DRY_RUN: false  # ⚠️ LIVE MODE - Real trading enabled
 
 # Profile Name (will be loaded from config/profiles/)
-PROFILE_NAME: "live_shadow_atomic_v1"
+PROFILE_NAME: "live_safe_atomic_v1"
 
 # ============================================================
 # Trading Parameters

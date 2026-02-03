@@ -35,17 +35,25 @@ class ExecutionRouter:
     def __init__(
         self,
         simulated_executor: SimulatedExecutor,
+        live_executor = None,
     ):
         """
         Initialize the execution router.
 
         Args:
             simulated_executor: Simulated executor for dry-run mode
+            live_executor: Optional live executor for production mode
         """
         self.simulated_executor = simulated_executor
+        self.live_executor = live_executor
         self._dry_run = Config.DRY_RUN
 
-        logger.info(f"ExecutionRouter initialized (mode={'dry-run' if self._dry_run else 'live'})")
+        mode = "dry-run" if self._dry_run else "live"
+        logger.info(f"ExecutionRouter initialized (mode={mode})")
+
+        # Warn if in live mode without live executor
+        if not self._dry_run and self.live_executor is None:
+            logger.warning("Live mode enabled but no live executor provided!")
 
     def set_mode(self, dry_run: bool) -> None:
         """
@@ -92,12 +100,20 @@ class ExecutionRouter:
 
             return yes_fill, no_fill, None
         else:
-            # Use live executor (not yet implemented)
-            logger.warning(f"Live executor not yet implemented for {trace_id[:8]}...")
+            # Use live executor
+            if not self.live_executor:
+                logger.error(f"Live executor not initialized for {trace_id[:8]}...")
+                return None, None, None
 
-            # TODO: Integrate with existing tx_sender for live execution
-            # For now, return None fills and no tx_result
-            return None, None, None
+            logger.debug(f"Routing to LiveExecutor for {trace_id[:8]}...")
+
+            yes_fill, no_fill = await self.live_executor.execute_arbitrage(
+                opportunity, yes_orderbook, no_orderbook, trace_id
+            )
+
+            # Return fills with None tx_result (for now)
+            # In future, tx_result will contain transaction hashes
+            return yes_fill, no_fill, None
 
     async def execute_single_leg(
         self,
@@ -157,4 +173,8 @@ class ExecutionRouter:
             "mode": "dry-run" if self._dry_run else "live",
             "simulated_executor_stats": self.simulated_executor.get_stats(),
         }
+
+        if self.live_executor:
+            stats["live_executor_stats"] = self.live_executor.get_stats()
+
         return stats

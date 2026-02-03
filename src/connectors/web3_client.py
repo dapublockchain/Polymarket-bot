@@ -28,8 +28,11 @@ class Web3Client:
     signing, broadcasting, and balance checking.
     """
 
-    # USDC contract address on Polygon
+    # USDC contract addresses on Polygon
+    # Native USDC: https://polygonscan.com/address/0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
+    # Bridged USDC (USDC.b): https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
     USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+    USDC_BRIDGED_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
     USDC_ABI = [
         {
             "constant": True,
@@ -69,13 +72,16 @@ class Web3Client:
 
     async def get_balance(self, address: str) -> Decimal:
         """
-        Get USDC balance for an address.
+        Get USDC balance for an address (Polymarket native USDC only).
+
+        IMPORTANT: Polymarket only accepts native USDC (0x2791...a84174).
+        Bridged USDC.b or other variants are NOT supported for trading.
 
         Args:
             address: Ethereum address to check balance for
 
         Returns:
-            USDC balance as Decimal (6 decimals)
+            Native USDC balance as Decimal (6 decimals)
 
         Raises:
             ValueError: If address is invalid
@@ -84,9 +90,9 @@ class Web3Client:
         if not Web3.is_address(address):
             raise ValueError(f"Invalid address format: {address}")
 
+        # Only check native USDC (Polymarket official)
         contract = self._get_usdc_contract()
 
-        # Get balance in loop (contract calls are synchronous)
         loop = asyncio.get_event_loop()
         balance_wei = await loop.run_in_executor(
             None,
@@ -108,6 +114,72 @@ class Web3Client:
             address=Web3.to_checksum_address(self.USDC_ADDRESS),
             abi=self.USDC_ABI
         )
+
+    async def get_all_usdc_balances(self, address: str) -> dict:
+        """
+        Get balances of all USDC variants on Polygon (for diagnostic purposes).
+
+        This helps users understand where their funds are located.
+
+        Args:
+            address: Ethereum address to check
+
+        Returns:
+            Dictionary with balance information for each USDC type
+        """
+        if not Web3.is_address(address):
+            raise ValueError(f"Invalid address format: {address}")
+
+        balances = {}
+        loop = asyncio.get_event_loop()
+
+        # USDC variants on Polygon
+        usdc_contracts = {
+            "native_usdc": {
+                "address": self.USDC_ADDRESS,
+                "name": "Native USDC (Circle Official)",
+                "polymarket_supported": True
+            },
+            "bridged_usdc": {
+                "address": self.USDC_BRIDGED_ADDRESS,
+                "name": "Bridged USDC.b (from Ethereum)",
+                "polymarket_supported": False
+            },
+            "pyusdc": {
+                "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "name": "PyUSDC (Polygon Native)",
+                "polymarket_supported": False
+            }
+        }
+
+        for key, info in usdc_contracts.items():
+            try:
+                contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(info["address"]),
+                    abi=self.USDC_ABI
+                )
+                balance_wei = await loop.run_in_executor(
+                    None,
+                    contract.functions.balanceOf(address).call
+                )
+                balance = Decimal(balance_wei) / Decimal("1000000")
+
+                balances[key] = {
+                    "name": info["name"],
+                    "address": info["address"],
+                    "balance": float(balance),
+                    "polymarket_supported": info["polymarket_supported"]
+                }
+            except Exception as e:
+                balances[key] = {
+                    "name": info["name"],
+                    "address": info["address"],
+                    "balance": 0,
+                    "error": str(e),
+                    "polymarket_supported": info["polymarket_supported"]
+                }
+
+        return balances
 
     async def estimate_gas(
         self,

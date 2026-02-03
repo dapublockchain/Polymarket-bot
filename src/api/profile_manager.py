@@ -516,3 +516,198 @@ class ProfileManager:
         """
         with open(self.audit_log_path, 'a') as f:
             f.write(json.dumps(record) + "\n")
+
+    # ========== Mode Detection and Status ==========
+
+    def get_active_profile(self) -> str:
+        """Get the currently active profile name.
+
+        Reads the current configuration and matches it against known profiles.
+
+        Returns:
+            Profile name (e.g., "live_shadow_atomic_v1") or "custom" if no match
+        """
+        current_config = self._get_current_config()
+
+        # Get current DRY_RUN and PROFILE_NAME from config
+        current_dry_run = current_config.get("DRY_RUN", True)
+        current_profile_name = current_config.get("PROFILE_NAME", "")
+
+        # If PROFILE_NAME is set, check if it matches
+        if current_profile_name:
+            try:
+                profile_data = self.get_profile(current_profile_name)
+                profile_dry_run = profile_data.get("DRY_RUN", True)
+
+                # Check if DRY_RUN matches
+                if profile_dry_run == current_dry_run:
+                    return current_profile_name
+            except ValueError:
+                pass  # Profile not found, continue
+
+        # Try to match by DRY_RUN status and trade size
+        for profile_info in self.list_profiles():
+            if profile_info["is_custom"]:
+                continue
+
+            try:
+                profile_data = self.get_profile(profile_info["name"])
+                profile_dry_run = profile_data.get("DRY_RUN", True)
+
+                if profile_dry_run == current_dry_run:
+                    # Additional check: trade size match
+                    current_trade_size = str(current_config.get("TRADE_SIZE", ""))
+                    profile_trade_size = str(profile_data.get("TRADE_SIZE", ""))
+
+                    if current_trade_size == profile_trade_size:
+                        return profile_info["name"]
+            except ValueError:
+                continue
+
+        # No exact match found
+        return "custom"
+
+    def get_mode_status(self) -> Dict[str, Any]:
+        """Get current trading mode and active profile.
+
+        Returns:
+            Dictionary with mode, profile, and dry_run status
+        """
+        current_config = self._get_current_config()
+        dry_run = current_config.get("DRY_RUN", True)
+
+        return {
+            "mode": "dry_run" if dry_run else "live",
+            "dry_run": dry_run,
+            "profile": self.get_active_profile(),
+            "config": {
+                "DRY_RUN": dry_run,
+                "TRADE_SIZE": current_config.get("TRADE_SIZE", "10"),
+                "MAX_POSITION_SIZE": current_config.get("MAX_POSITION_SIZE", "1000"),
+                "MAX_DAILY_LOSS": current_config.get("MAX_DAILY_LOSS", "10"),
+                "MAX_SLIPPAGE": current_config.get("MAX_SLIPPAGE", "0.02"),
+            }
+        }
+
+    def can_switch_to_live(self) -> Tuple[bool, List[str]]:
+        """Check if system can safely switch to LIVE mode.
+
+        Performs pre-flight checks before allowing live mode activation.
+        Integrates PolymarketConfigValidator for comprehensive validation.
+
+        Returns:
+            Tuple of (can_switch: bool, errors: List[str])
+        """
+        errors = []
+
+        # Use PolymarketConfigValidator for detailed configuration checks
+        from src.core.polymarket_config import PolymarketConfigValidator
+
+        config_status = PolymarketConfigValidator.get_configuration_status()
+
+        # Add missing configuration items
+        if config_status["missing"]:
+            for item in config_status["missing"]:
+                errors.append(f"Missing: {item}")
+
+        # Add invalid configuration items
+        if config_status["invalid"]:
+            for item in config_status["invalid"]:
+                errors.append(f"Invalid: {item}")
+
+        # Add warnings (non-blocking but informative)
+        if config_status.get("warnings"):
+            for warning in config_status["warnings"]:
+                errors.append(f"Warning: {warning}")
+
+        # Validate configuration values (trade limits)
+        current_config = self._get_current_config()
+
+        # Check trade size is reasonable
+        try:
+            trade_size = Decimal(str(current_config.get("TRADE_SIZE", "10")))
+            if trade_size <= 0:
+                errors.append("TRADE_SIZE must be positive")
+            elif trade_size > Decimal("100"):
+                errors.append("TRADE_SIZE is too large for first live run (recommended: $2-10)")
+        except (ValueError, TypeError):
+            errors.append("Invalid TRADE_SIZE value")
+
+        # Check position size
+        try:
+            max_position = Decimal(str(current_config.get("MAX_POSITION_SIZE", "1000")))
+            if max_position <= 0:
+                errors.append("MAX_POSITION_SIZE must be positive")
+            elif max_position > Decimal("100"):
+                errors.append("MAX_POSITION_SIZE should be ≤ $100 for Phase 1")
+        except (ValueError, TypeError):
+            errors.append("Invalid MAX_POSITION_SIZE value")
+
+        # Check daily loss limit
+        try:
+            max_daily_loss = Decimal(str(current_config.get("MAX_DAILY_LOSS", "10")))
+            if max_daily_loss <= 0:
+                errors.append("MAX_DAILY_LOSS must be positive")
+            elif max_daily_loss > Decimal("10"):
+                errors.append("MAX_DAILY_LOSS should be ≤ $10 for Phase 1")
+        except (ValueError, TypeError):
+            errors.append("Invalid MAX_DAILY_LOSS value")
+
+        return len(errors) == 0, errors
+
+    def switch_profile(self, profile_name: str, applied_by: str = "web_ui",
+                       confirm_live: bool = False) -> Dict[str, Any]:
+        """Switch to a specific configuration profile.
+
+        Enhanced version of apply_profile() with additional safety checks.
+
+        Args:
+            profile_name: Profile name to switch to
+            applied_by: Source of the switch request (default: "web_ui")
+            confirm_live: User confirmed LIVE mode activation (required for live switches)
+
+        Returns:
+            Dictionary with result, warnings, and validation status
+
+        Raises:
+            ValueError: If profile not found or validation fails
+        """
+        # Load profile to check if it's a live mode
+        try:
+            profile_data = self.get_profile(profile_name)
+            is_live_mode = not profile_data.get("DRY_RUN", True)
+        except ValueError:
+            raise ValueError(f"Profile not found: {profile_name}")
+
+        # Safety check for LIVE mode
+        if is_live_mode and not confirm_live:
+            # Require explicit confirmation for live mode
+            return {
+                "success": False,
+                "requires_confirmation": True,
+                "profile_name": profile_name,
+                "error": "LIVE mode requires explicit confirmation",
+                "warnings": ["SWITCH_TO_LIVE"],
+                "message": "Please confirm you understand the risks of live trading"
+            }
+
+        # Pre-flight checks for LIVE mode
+        if is_live_mode:
+            can_switch, errors = self.can_switch_to_live()
+            if not can_switch:
+                return {
+                    "success": False,
+                    "profile_name": profile_name,
+                    "error": "Pre-flight checks failed",
+                    "validation_errors": errors,
+                    "warnings": ["SAFETY_CHECK_FAILED"]
+                }
+
+        # Apply the profile
+        result = self.apply_profile(profile_name, applied_by=applied_by)
+
+        # Add success flag
+        result["success"] = True
+        result["is_live_mode"] = is_live_mode
+
+        return result
