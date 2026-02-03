@@ -170,13 +170,14 @@ async def main():
         )
         logger.info("✅ TxSender initialized")
 
-        # Initialize live executor
+        # Initialize live executor with REAL EXECUTION enabled
         live_executor = LiveExecutor(
             tx_sender=tx_sender,
             fee_rate=Config.FEE_RATE,
             slippage_tolerance=Config.MAX_SLIPPAGE,
+            use_real_execution=True,  # 🔴 CRITICAL: Enable real trading
         )
-        logger.warning("⚠️  LiveExecutor initialized (REAL TRADING)")
+        logger.warning("🔴 LiveExecutor initialized (REAL TRADING MODE - use_real_execution=True)")
 
         # Initialize execution router with live executor
         execution_router = ExecutionRouter(
@@ -364,7 +365,50 @@ async def main():
                                 else:
                                     logger.warning("   [模拟模式] 模拟成交失败")
                             else:
-                                logger.warning("   [实盘模式] 将在此处执行交易")
+                                # Execute with live executor (REAL TRADING)
+                                logger.warning("⚠️  [实盘模式] 执行真实交易...")
+                                yes_fill, no_fill, tx_result = await execution_router.execute_arbitrage(
+                                    opportunity,
+                                    yes_book,
+                                    no_book,
+                                    trace_id
+                                )
+
+                                # Track fills
+                                if yes_fill and no_fill:
+                                    stats.fills_confirmed += 2
+
+                                    # Record fill events
+                                    await recorder.record_event("fill", yes_fill.to_dict())
+                                    await recorder.record_event("fill", no_fill.to_dict())
+
+                                    # Process fills through PnL tracker
+                                    pnl_update = await pnl_tracker.process_fills(
+                                        fills=[yes_fill, no_fill],
+                                        expected_edge=opportunity.expected_profit,
+                                        trace_id=trace_id,
+                                        strategy="atomic"
+                                    )
+
+                                    # Update stats
+                                    stats.pnl_updates += 1
+
+                                    # Update cumulative metrics
+                                    stats.cumulative_realized_pnl = pnl_tracker._cumulative_realized_pnl
+                                    stats.cumulative_expected_edge = pnl_tracker._cumulative_expected_edge
+
+                                    # Record PnL update event
+                                    await recorder.record_event("pnl_update", pnl_update.to_dict())
+
+                                    # Log PnL information
+                                    logger.success("   [实盘模式] 真实成交成功:")
+                                    logger.success(f"      YES: {yes_fill.quantity:.4f} @ ${yes_fill.price:.4f} (tx: {yes_fill.tx_hash[:20]}...)" if yes_fill.tx_hash else f"      YES: {yes_fill.quantity:.4f} @ ${yes_fill.price:.4f}")
+                                    logger.success(f"      NO:  {no_fill.quantity:.4f} @ ${no_fill.price:.4f} (tx: {no_fill.tx_hash[:20]}...)" if no_fill.tx_hash else f"      NO:  {no_fill.quantity:.4f} @ ${no_fill.price:.4f}")
+                                    logger.success(f"      预期收益: ${pnl_update.expected_edge:.4f}")
+                                    logger.success(f"      实际PnL: ${pnl_update.realized_pnl if pnl_update.realized_pnl else 'TBD':.4f}")
+                                    logger.success(f"      手续费: ${pnl_update.fees_paid:.4f}")
+                                else:
+                                    logger.error("   [实盘模式] ❌ 真实成交失败!")
 
                 # Log statistics every 60 seconds
                 if checks % 60 == 0:
