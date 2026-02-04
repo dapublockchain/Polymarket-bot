@@ -33,7 +33,20 @@ class CTFExchangeClient:
     FILL_ORDER_ABI = [
         {
             "inputs": [
-                {"internalType": "struct Order.Order", "name": "order", "type": "tuple"},
+                {
+                    "components": [
+                        {"name": "maker", "type": "address"},
+                        {"name": "taker", "type": "address"},
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "makerAmount", "type": "uint256"},
+                        {"name": "takerAmount", "type": "uint256"},
+                        {"name": "expiration", "type": "uint256"},
+                        {"name": "salt", "type": "uint256"}
+                    ],
+                    "internalType": "struct Order.Order",
+                    "name": "order",
+                    "type": "tuple"
+                },
                 {"internalType": "bytes", "name": "signature", "type": "bytes"}
             ],
             "name": "fillOrder",

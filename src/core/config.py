@@ -2,13 +2,26 @@
 Configuration management for PolyArb-X.
 """
 import os
+import yaml
 from decimal import Decimal
 from typing import Optional
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Load config.yaml
+def _load_config_yaml() -> dict:
+    """Load configuration from config.yaml."""
+    config_path = Path("config/config.yaml")
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    return {}
+
+_yaml_config = _load_config_yaml()
 
 
 class Config:
@@ -48,7 +61,12 @@ class Config:
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/polyarb.db")
 
     # Trading mode
-    DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
+    # Priority: 1) Environment variable DRY_RUN, 2) config.yaml DRY_RUN, 3) default false
+    _dry_run_env = os.getenv("DRY_RUN")
+    if _dry_run_env is not None:
+        DRY_RUN: bool = _dry_run_env.lower() == "true"
+    else:
+        DRY_RUN: bool = _yaml_config.get("DRY_RUN", False)
 
     # Risk Management Configuration
     MAX_POSITION_SIZE: Decimal = Decimal(os.getenv("MAX_POSITION_SIZE", "1000"))  # $1000

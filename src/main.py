@@ -141,23 +141,34 @@ async def main():
         risk_manager = RiskManager(
             max_position_size=Config.MAX_POSITION_SIZE,
             max_gas_cost=Config.MAX_GAS_COST,
-            max_daily_loss=Decimal(os.getenv("MAX_DAILY_LOSS", "10")),
         )
 
         # Initialize nonce manager
-        nonce_manager = NonceManager()
+        nonce_manager = NonceManager(
+            web3_client=web3_client,
+            address=web3_client.address
+        )
 
         # Initialize circuit breaker
+        from src.execution.circuit_breaker import CircuitBreakerConfig
+
+        circuit_breaker_config = CircuitBreakerConfig(
+            consecutive_failures_threshold=5,
+            open_timeout_seconds=60
+        )
         circuit_breaker = CircuitBreaker(
-            failure_threshold=5,
-            timeout_seconds=60,
+            config=circuit_breaker_config,
+            name="trading"
         )
 
         # Initialize retry policy
-        retry_policy = RetryPolicy(
-            max_attempts=Config.MAX_RETRIES,
-            base_delay=Config.RETRY_DELAY,
+        from src.execution.retry_policy import RetryPolicyConfig
+
+        retry_policy_config = RetryPolicyConfig(
+            max_retries=Config.MAX_RETRIES,
+            base_delay_ms=int(Config.RETRY_DELAY * 1000)
         )
+        retry_policy = RetryPolicy(config=retry_policy_config)
 
         # Initialize transaction sender
         tx_sender = TxSender(
